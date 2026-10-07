@@ -4,7 +4,7 @@ import sigelab.config.DatabaseConnection;
 import sigelab.enums.EstadoJustificacion;
 import sigelab.enums.EstadoSesion;
 import sigelab.model.*;
-import universidad.asistencia.model.*;
+import sigelab.model.*;
 import sigelab.util.JdbcSupport;
 
 import java.sql.*;

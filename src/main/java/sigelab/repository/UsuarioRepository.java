@@ -31,6 +31,28 @@ public class UsuarioRepository {
         try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement(SELECT + "WHERE u.usuario = ?")) { s.setString(1, nombre); try (ResultSet rs = s.executeQuery()) { return rs.next() ? Optional.of(mapear(rs)) : Optional.empty(); } }
         catch (SQLException e) { throw JdbcSupport.error("buscar el usuario", e); }
     }
+
+    public Optional<Usuario> autenticar(String nombreUsuario, String passwordPlana) {
+        Optional<Usuario> optUsuario = buscarPorUsuario(nombreUsuario);
+
+        if (optUsuario.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Usuario usuario = optUsuario.get();
+
+        if (!usuario.isActivo()) {
+            System.out.println("El usuario está desactivado.");
+            return Optional.empty();
+        }
+
+        if (org.mindrot.jbcrypt.BCrypt.checkpw(passwordPlana, usuario.getPasswordHash())) {
+            return Optional.of(usuario);
+        }
+
+        return Optional.empty();
+    }
+
     public List<Usuario> listar() { List<Usuario> r = new ArrayList<>(); try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement(SELECT + "ORDER BY u.usuario"); ResultSet rs = s.executeQuery()) { while (rs.next()) r.add(mapear(rs)); return r; } catch (SQLException e) { throw JdbcSupport.error("consultar usuarios", e); } }
     public boolean existeUsuario(String nombre) { try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement("SELECT 1 FROM Usuario WHERE usuario = ?")) { s.setString(1, nombre); try (ResultSet rs = s.executeQuery()) { return rs.next(); } } catch (SQLException e) { throw JdbcSupport.error("verificar el usuario", e); } }
     public boolean existeUsuario(String nombre, int idExcluido) { try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement("SELECT 1 FROM Usuario WHERE usuario = ? AND id_usuario <> ?")) { s.setString(1, nombre); s.setInt(2, idExcluido); try (ResultSet rs = s.executeQuery()) { return rs.next(); } } catch (SQLException e) { throw JdbcSupport.error("verificar el usuario", e); } }

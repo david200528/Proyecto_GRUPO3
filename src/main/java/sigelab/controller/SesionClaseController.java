@@ -5,7 +5,7 @@ import sigelab.model.HorarioSemanal;
 import sigelab.model.PeriodoAcademico;
 import sigelab.model.Seccion;
 import sigelab.model.SesionClase;
-import universidad.asistencia.model.*;
+import sigelab.model.*;
 import sigelab.service.SesionClaseService;
 import java.util.List;
 import java.util.Optional;
