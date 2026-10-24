@@ -32,11 +32,16 @@ public class LoginForm {
     }
 
     public LoginForm(UsuarioController usuarioController, FacialAuthClient facialAuthClient) {
+        // Si tus variables no fueron instanciadas por el Form, las inicializamos aquí:
+        if (this.btnIngresar == null) this.btnIngresar = new JButton();
+        if (this.btnSalir == null) this.btnSalir = new JButton();
+        if (this.txtPassword == null) this.txtPassword = new JPasswordField();
+        if (this.txtUsuario == null) this.txtUsuario = new JTextField();
+
         this.usuarioController = usuarioController;
         this.facialAuthClient = facialAuthClient;
         configurarEventos();
     }
-
     private void configurarEventos() {
         btnIngresar.addActionListener(e -> ingresar());
         btnSalir.addActionListener(e -> System.exit(0));
@@ -142,4 +147,5 @@ public class LoginForm {
             return new LoginOutcome(null, null, true);
         }
     }
+
 }

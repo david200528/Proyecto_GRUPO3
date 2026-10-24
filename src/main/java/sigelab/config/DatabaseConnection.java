@@ -7,8 +7,10 @@ import java.sql.SQLException;
 public class DatabaseConnection {
 
     private static final String URL = configuracion(
-            "universidad.db.url", "DB_URL",
-            "jdbc:sqlserver://localhost:1433;databaseName=UniversidadAsistenciaDB;encrypt=true;trustServerCertificate=true;sendTimeAsDatetime=false;");
+            "universidad.db.url",
+            "DB_URL",
+            "jdbc:sqlserver://localhost:1433;databaseName=sigelab;encrypt=true;trustServerCertificate=true;sendTimeAsDatetime=false;"
+    );
     private static final String USER = configuracion("universidad.db.user", "DB_USER", "sa");
     private static final String PASSWORD = configuracion("universidad.db.password", "DB_PASSWORD", "Dev2025!");
 

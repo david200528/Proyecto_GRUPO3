@@ -6,9 +6,9 @@ import sigelab.enums.ResultadoAsistencia;
 import sigelab.enums.TipoMarcaje;
 import sigelab.model.*;
 import sigelab.repository.*;
-import universidad.asistencia.enums.*;
-import universidad.asistencia.model.*;
-import universidad.asistencia.repository.*;
+import sigelab.enums.*;
+import sigelab.model.*;
+import sigelab.repository.*;
 import sigelab.util.BusinessException;
 
 import java.time.LocalDateTime;

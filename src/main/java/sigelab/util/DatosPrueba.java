@@ -7,10 +7,10 @@ import sigelab.enums.TipoMarcaje;
 import sigelab.model.*;
 import sigelab.repository.*;
 import sigelab.service.*;
-import universidad.asistencia.enums.*;
-import universidad.asistencia.model.*;
-import universidad.asistencia.repository.*;
-import universidad.asistencia.service.*;
+import sigelab.enums.*;
+import sigelab.model.*;
+import sigelab.repository.*;
+import sigelab.service.*;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;

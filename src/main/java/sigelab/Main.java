@@ -33,6 +33,7 @@ public class Main {
             }
         } catch (RuntimeException e) {
             System.err.println("No fue posible verificar el usuario admin: " + e.getMessage());
+            e.printStackTrace(); // Esto imprimirá el error completo en rojo para ver la causa exacta
         }
     }
 }
