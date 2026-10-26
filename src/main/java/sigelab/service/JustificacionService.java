@@ -3,7 +3,6 @@ package sigelab.service;
 import sigelab.enums.EstadoJustificacion;
 import sigelab.model.Justificacion;
 import sigelab.repository.*;
-import universidad.asistencia.repository.*;
 import sigelab.util.BusinessException;
 
 import java.util.List;

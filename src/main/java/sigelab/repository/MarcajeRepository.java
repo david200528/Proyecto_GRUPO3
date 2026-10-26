@@ -5,7 +5,6 @@ import sigelab.enums.EstadoSesion;
 import sigelab.enums.MedioMarcaje;
 import sigelab.enums.TipoMarcaje;
 import sigelab.model.*;
-import universidad.asistencia.model.*;
 import sigelab.util.JdbcSupport;
 
 import java.sql.*;

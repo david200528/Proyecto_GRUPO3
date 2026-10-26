@@ -3,7 +3,6 @@ package sigelab.repository;
 import sigelab.config.DatabaseConnection;
 import sigelab.enums.EstadoSesion;
 import sigelab.model.*;
-import universidad.asistencia.model.*;
 import sigelab.util.JdbcSupport;
 
 import java.sql.*;
