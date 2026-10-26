@@ -28,3 +28,8 @@ src/main/resources/config.properties
 
 # Archivos generados por Maven
 target/
+
+# Componente facial
+facial-api/.venv/
+facial-api/faces/
+__pycache__/
