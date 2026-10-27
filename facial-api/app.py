@@ -15,6 +15,9 @@ Solo escucha en 127.0.0.1 (no es accesible desde otras computadoras).
 Las fotos se guardan en facial-api/faces/<userId>/ (NO se suben a Git).
 Esta API NO implementa deteccion de vida (fuera de alcance), por eso
 livenessPassed siempre es false.
+
+Mientras registra o verifica, abre una ventana con la imagen de la camara,
+un recuadro sobre el rostro detectado y el avance del proceso.
 """
 
 import json
@@ -36,17 +39,25 @@ PUERTO = int(os.environ.get("FACIAL_PORT", "8765"))
 # Distancia maxima aceptada: menor distancia = mas parecido.
 # Se puede ajustar sin tocar el codigo: $env:FACIAL_UMBRAL = "65"
 UMBRAL = float(os.environ.get("FACIAL_UMBRAL", "70"))
+# Ventana con la imagen de la camara. Para desactivarla: $env:FACIAL_VISTA_PREVIA = "0"
+VISTA_PREVIA = os.environ.get("FACIAL_VISTA_PREVIA", "1") != "0"
 
 MUESTRAS_REGISTRO = 20      # fotos que se toman al registrar un rostro
 MIN_MUESTRAS = 10           # minimo de fotos validas para aceptar el registro
 INTENTOS_VERIFICACION = 5   # cuadros que se comparan al verificar
 ACIERTOS_REQUERIDOS = 3     # de esos cuadros, cuantos deben coincidir
+PAUSA_ENTRE_MUESTRAS = 0.2  # segundos entre una muestra y la siguiente
+SEGUNDOS_RESULTADO = 1.2    # tiempo que se muestra el resultado en la ventana
 TAMANO_ROSTRO = (200, 200)
 MODELO = "LBPH-OpenCV"
 DIMENSION = 8 * 8 * 256     # rejilla 8x8 por 256 valores del histograma LBP
 
+VENTANA = "SIGELAB - Reconocimiento facial"
+BLANCO, VERDE, ROJO, AZUL = (255, 255, 255), (0, 200, 0), (0, 0, 255), (255, 200, 0)  # BGR
+
 app = Flask(__name__)
 app.json.ensure_ascii = False  # el cliente Java lee tildes tal cual, sin secuencias \uXXXX
+app.json.mimetype = "application/json; charset=utf-8"
 camara_lock = threading.Lock()  # evita que dos peticiones usen la camara a la vez
 detector = cv2.CascadeClassifier(
     cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -98,24 +109,71 @@ def leer_meta(user_id):
         return {}
 
 
+# ---------------------------------------------------------------------------
+# Camara y ventana de vista previa
+# ---------------------------------------------------------------------------
+
 def abrir_camara():
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not cap.isOpened():
         return None
-    for _ in range(20):  # los primeros cuadros salen oscuros mientras la camara se ajusta
+    for _ in range(20):  # los primeros cuadros salen oscuros mientras la camara ajusta la exposicion
         cap.read()
     return cap
 
 
+def abrir_ventana():
+    if not VISTA_PREVIA:
+        return
+    cv2.namedWindow(VENTANA, cv2.WINDOW_AUTOSIZE)
+    try:
+        cv2.setWindowProperty(VENTANA, cv2.WND_PROP_TOPMOST, 1)  # que quede sobre las demas
+    except cv2.error:
+        pass
+
+
+def cerrar_ventana():
+    if not VISTA_PREVIA:
+        return
+    try:
+        cv2.destroyWindow(VENTANA)
+        cv2.waitKey(1)
+    except cv2.error:
+        pass
+
+
+def mostrar(frame, texto, color=BLANCO, caja=None):
+    """Muestra el cuadro de la camara con un recuadro sobre el rostro y un mensaje.
+    Los textos van sin tildes porque la fuente de OpenCV no las dibuja."""
+    if not VISTA_PREVIA:
+        return
+    imagen = frame.copy()
+    if caja is not None:
+        x, y, w, h = caja
+        cv2.rectangle(imagen, (x, y), (x + w, y + h), color, 2)
+    cv2.putText(imagen, texto, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2, cv2.LINE_AA)
+    cv2.imshow(VENTANA, imagen)
+    cv2.waitKey(1)
+
+
+def mostrar_resultado(frame, texto, color, caja=None):
+    """Deja el resultado a la vista unos instantes antes de cerrar la ventana."""
+    if not VISTA_PREVIA:
+        return
+    mostrar(frame, texto, color, caja)
+    cv2.waitKey(int(SEGUNDOS_RESULTADO * 1000))
+
+
 def extraer_rostro(frame):
-    """Devuelve el rostro mas grande de la imagen (gris, 200x200) o None."""
+    """Devuelve (rostro gris 200x200, caja) del rostro mas grande, o (None, None)."""
     gris = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     rostros = detector.detectMultiScale(gris, 1.3, 5, minSize=(80, 80))
     if len(rostros) == 0:
-        return None
-    x, y, w, h = max(rostros, key=lambda r: r[2] * r[3])
+        return None, None
+    caja = tuple(int(v) for v in max(rostros, key=lambda r: r[2] * r[3]))
+    x, y, w, h = caja
     rostro = cv2.resize(gris[y:y + h, x:x + w], TAMANO_ROSTRO)
-    return cv2.equalizeHist(rostro)  # reduce el efecto de la iluminacion
+    return cv2.equalizeHist(rostro), caja  # equalizeHist reduce el efecto de la iluminacion
 
 
 def entrenar():
@@ -136,6 +194,10 @@ def entrenar():
     reconocedor.train(imagenes, np.array(etiquetas))
     return reconocedor
 
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
 
 @app.get("/health")
 def health():
@@ -161,19 +223,31 @@ def enroll():
             shutil.rmtree(temporal, ignore_errors=True)
             raise ErrorApi("No se pudo abrir la cámara.", 503)
         try:
-            guardadas = 0
+            abrir_ventana()
+            guardadas, ultimo, ultimo_frame, ultima_caja = 0, 0.0, None, None
             limite = time.time() + 30
             while guardadas < MUESTRAS_REGISTRO and time.time() < limite:
                 ok, frame = cap.read()
                 if not ok:
                     continue
-                rostro = extraer_rostro(frame)
-                if rostro is None:
+                ultimo_frame = frame
+                rostro, caja = extraer_rostro(frame)
+                ultima_caja = caja
+                mostrar(frame, f"Registrando rostro: {guardadas}/{MUESTRAS_REGISTRO} "
+                               "(mueve un poco la cabeza)", AZUL, caja)
+                if rostro is None or time.time() - ultimo < PAUSA_ENTRE_MUESTRAS:
                     continue
                 cv2.imwrite(str(temporal / f"{guardadas:02d}.jpg"), rostro)
                 guardadas += 1
-                time.sleep(0.2)  # pausa para variar un poco la pose entre fotos
+                ultimo = time.time()
+
+            if ultimo_frame is not None:
+                if guardadas >= MIN_MUESTRAS:
+                    mostrar_resultado(ultimo_frame, "Rostro registrado", VERDE, ultima_caja)
+                else:
+                    mostrar_resultado(ultimo_frame, "Registro incompleto", ROJO, ultima_caja)
         finally:
+            cerrar_ventana()
             cap.release()
 
     if guardadas < MIN_MUESTRAS:
@@ -206,13 +280,19 @@ def verify():
         if cap is None:
             raise ErrorApi("No se pudo abrir la cámara.", 503)
         try:
+            abrir_ventana()
+            ultimo, ultimo_frame, ultima_caja = 0.0, None, None
             limite = time.time() + 10
             while intentos < INTENTOS_VERIFICACION and time.time() < limite:
                 ok, frame = cap.read()
                 if not ok:
                     continue
-                rostro = extraer_rostro(frame)
-                if rostro is None:
+                ultimo_frame = frame
+                rostro, caja = extraer_rostro(frame)
+                ultima_caja = caja
+                mostrar(frame, f"Verificando... {intentos}/{INTENTOS_VERIFICACION} "
+                               "(mira a la camara)", AZUL, caja)
+                if rostro is None or time.time() - ultimo < PAUSA_ENTRE_MUESTRAS:
                     continue
                 etiqueta, distancia = reconocedor.predict(rostro)
                 intentos += 1
@@ -220,8 +300,18 @@ def verify():
                 # Debe ser el usuario correcto Y estar bajo el umbral de distancia
                 if etiqueta == user_id and distancia <= UMBRAL:
                     aciertos += 1
-                time.sleep(0.2)
+                ultimo = time.time()
+
+            reconocido = aciertos >= ACIERTOS_REQUERIDOS
+            if ultimo_frame is not None:
+                if intentos == 0:
+                    mostrar_resultado(ultimo_frame, "No se detecto ningun rostro", ROJO)
+                elif reconocido:
+                    mostrar_resultado(ultimo_frame, "Rostro reconocido", VERDE, ultima_caja)
+                else:
+                    mostrar_resultado(ultimo_frame, "Rostro NO reconocido", ROJO, ultima_caja)
         finally:
+            cerrar_ventana()
             cap.release()
 
     if intentos == 0:
@@ -229,7 +319,6 @@ def verify():
                        threshold=UMBRAL, livenessPassed=False, framesEvaluated=0,
                        message="No se detectó ningún rostro frente a la cámara.")
 
-    reconocido = aciertos >= ACIERTOS_REQUERIDOS
     return jsonify(success=True, matched=reconocido, userId=user_id,
                    score=round(float(np.mean(distancias)), 1),  # util para calibrar el umbral
                    threshold=UMBRAL, livenessPassed=False, framesEvaluated=intentos,
@@ -260,5 +349,7 @@ def delete_profile(user_id):
 
 
 if __name__ == "__main__":
-    # debug=False: el modo debug reinicia el servidor y abriria la camara dos veces
-    app.run(host="127.0.0.1", port=PUERTO, debug=False)
+    # threaded=False: cada peticion se atiende en el hilo principal, que es donde
+    # OpenCV necesita dibujar su ventana (en otros hilos puede congelarse en Windows).
+    # debug=False: el modo debug reinicia el servidor y abriria la camara dos veces.
+    app.run(host="127.0.0.1", port=PUERTO, debug=False, threaded=False)
