@@ -176,6 +176,21 @@ def extraer_rostro(frame):
     return cv2.equalizeHist(rostro), caja  # equalizeHist reduce el efecto de la iluminacion
 
 
+def reemplazar_carpeta(origen, destino):
+    """Reemplaza destino por origen. En Windows, borrar una carpeta puede fallar si
+    algo la tiene abierta (OneDrive, el Explorador); por eso se reintenta."""
+    for _ in range(5):
+        try:
+            if destino.exists():
+                shutil.rmtree(destino)
+            origen.rename(destino)
+            return
+        except OSError:
+            time.sleep(0.5)
+    raise ErrorApi("No se pudo guardar el rostro: la carpeta de registros está bloqueada. "
+                   "Cierra el Explorador de archivos y vuelve a intentarlo.", 500)
+
+
 def entrenar():
     """Entrena LBPH con todos los rostros registrados. La etiqueta es el userId."""
     imagenes, etiquetas = [], []
@@ -257,8 +272,7 @@ def enroll():
 
     previo = leer_meta(user_id)
     destino = carpeta_usuario(user_id)
-    shutil.rmtree(destino, ignore_errors=True)
-    temporal.rename(destino)
+    reemplazar_carpeta(temporal, destino)
     meta = {"registeredAt": previo.get("registeredAt", ahora()), "updatedAt": ahora()}
     (destino / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
 
