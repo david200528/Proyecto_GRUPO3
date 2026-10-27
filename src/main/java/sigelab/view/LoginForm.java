@@ -1,9 +1,6 @@
 package sigelab.view;
 
 import sigelab.controller.UsuarioController;
-import sigelab.integration.facial.FacialAuthClient;
-import sigelab.integration.facial.FacialClientException;
-import sigelab.integration.facial.FacialVerificationResult;
 import sigelab.model.Usuario;
 
 import javax.swing.*;
@@ -20,20 +17,14 @@ public class LoginForm {
     private JButton btnSalir;
 
     private final UsuarioController usuarioController;
-    private final FacialAuthClient facialAuthClient;
     private boolean autenticando;
 
     public LoginForm() {
-        this(new UsuarioController(), new FacialAuthClient());
+        this(new UsuarioController());
     }
 
     public LoginForm(UsuarioController usuarioController) {
-        this(usuarioController, new FacialAuthClient());
-    }
-
-    public LoginForm(UsuarioController usuarioController, FacialAuthClient facialAuthClient) {
         this.usuarioController = usuarioController;
-        this.facialAuthClient = facialAuthClient;
         configurarEventos();
     }
 
@@ -61,41 +52,31 @@ public class LoginForm {
 
         autenticando = true;
         btnIngresar.setEnabled(false);
-        btnIngresar.setText("Verificando identidad...");
+        btnIngresar.setText("Verificando...");
 
-        new SwingWorker<LoginOutcome, Void>() {
+        new SwingWorker<Optional<Usuario>, Void>() {
             @Override
-            protected LoginOutcome doInBackground() {
-                Optional<Usuario> autenticado = usuarioController.autenticar(usuario, password);
-                if (autenticado.isEmpty()) return LoginOutcome.sinCredenciales();
-                // El password nunca sale de Java. Python recibe solamente el id estable.
-                FacialVerificationResult facial = facialAuthClient.verify(autenticado.get().getIdUsuario());
-                return new LoginOutcome(autenticado.get(), facial);
+            protected Optional<Usuario> doInBackground() {
+                return usuarioController.autenticar(usuario, password);
             }
 
             @Override
             protected void done() {
                 try {
-                    LoginOutcome outcome = get();
-                    if (outcome.credencialesInvalidas()) {
+                    Optional<Usuario> usuarioAutenticado = get();
+                    if (usuarioAutenticado.isEmpty()) {
                         mostrarError("Usuario o contraseña incorrectos, o usuario inactivo.");
                         txtPassword.selectAll();
                         txtPassword.requestFocus();
-                    } else if (!outcome.facial().matched()) {
-                        mostrarError(outcome.facial().message());
-                        txtPassword.selectAll();
-                        txtPassword.requestFocus();
                     } else {
-                        abrirMenu(outcome.usuario());
+                        abrirMenu(usuarioAutenticado.get());
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    mostrarError("La verificación facial fue interrumpida.");
+                    mostrarError("El proceso fue interrumpido.");
                 } catch (ExecutionException e) {
                     Throwable cause = e.getCause();
-                    if (cause instanceof FacialClientException facialError) {
-                        mostrarError(facialError.getMessage());
-                    } else if (cause instanceof RuntimeException runtimeError) {
+                    if (cause instanceof RuntimeException runtimeError) {
                         mostrarError(runtimeError.getMessage());
                     } else {
                         mostrarError("No fue posible completar la autenticación.");
@@ -130,16 +111,5 @@ public class LoginForm {
 
     public JPanel getPanelPrincipal() {
         return panelPrincipal;
-    }
-
-    private record LoginOutcome(Usuario usuario, FacialVerificationResult facial,
-                                boolean credencialesInvalidas) {
-        private LoginOutcome(Usuario usuario, FacialVerificationResult facial) {
-            this(usuario, facial, false);
-        }
-
-        private static LoginOutcome sinCredenciales() {
-            return new LoginOutcome(null, null, true);
-        }
     }
 }

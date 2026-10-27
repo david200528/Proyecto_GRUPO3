@@ -24,6 +24,7 @@ public class MainForm {
     private JButton btnJustificaciones;
     private JButton btnUsuarios;
     private JButton btnSalir;
+    private JButton btnAuditoria;
     private final Usuario usuarioAutenticado;
 
     public MainForm() {
@@ -54,6 +55,9 @@ public class MainForm {
         btnJustificaciones.addActionListener(e -> abrirJustificaciones());
         btnUsuarios.addActionListener(e -> abrirUsuarios());
         btnSalir.addActionListener(e -> salir());
+
+        // Enlace del botón de Auditoría creado a mano
+        btnAuditoria.addActionListener(e -> abrirAuditoria());
     }
 
     private void abrirEstudiantes() {
@@ -114,6 +118,11 @@ public class MainForm {
     private void abrirUsuarios() {
         UsuarioForm view = new UsuarioForm(usuarioAutenticado);
         abrirVentana("Administración de Usuarios", view.getPanelPrincipal(), 1050, 650);
+    }
+
+    private void abrirAuditoria() {
+        AuditoriaForm view = new AuditoriaForm();
+        abrirVentana("Módulo de Auditoría y Bitácora", view.getPanelPrincipal(), 950, 650);
     }
 
     /** Abre cualquier catálogo dentro de una ventana secundaria. */

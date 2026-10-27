@@ -1,72 +1,191 @@
 package sigelab.repository;
 
 import sigelab.config.DatabaseConnection;
-import sigelab.enums.RolUsuario;
-import sigelab.model.Docente;
 import sigelab.model.Usuario;
-import sigelab.util.JdbcSupport;
+import sigelab.model.Docente;
+import sigelab.enums.RolUsuario;
 
 import java.sql.*;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 public class UsuarioRepository {
-    private static final String SELECT = "SELECT u.id_usuario, u.usuario, u.password_hash, u.rol, u.activo, u.fecha_creacion, " +
-            "d.id_docente, d.codigo_empleado, d.nombres AS docente_nombres, d.apellidos AS docente_apellidos, d.correo AS docente_correo, d.activo AS docente_activo " +
-            "FROM Usuario u LEFT JOIN Docente d ON d.id_docente = u.id_docente ";
+
+    public boolean existeUsuario(String usuario) {
+        String sql = "SELECT COUNT(*) FROM dbo.Usuario WHERE usuario = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, usuario);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1) > 0;
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    public boolean existeUsuario(String usuario, int idUsuarioToExclude) {
+        String sql = "SELECT COUNT(*) FROM dbo.Usuario WHERE usuario = ? AND id_usuario <> ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, usuario);
+            stmt.setInt(2, idUsuarioToExclude);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt(1) > 0;
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
 
     public boolean guardar(Usuario usuario) {
-        String sql = "INSERT INTO Usuario (usuario, password_hash, rol, id_docente, activo) VALUES (?, ?, ?, ?, ?)";
-        try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            s.setString(1, usuario.getUsuario()); s.setString(2, usuario.getPasswordHash()); s.setString(3, usuario.getRol().name());
-            if (usuario.getDocente() == null) s.setNull(4, Types.INTEGER); else s.setInt(4, usuario.getDocente().getIdDocente()); s.setBoolean(5, usuario.isActivo());
-            if (s.executeUpdate() == 0) return false;
-            try (ResultSet keys = s.getGeneratedKeys()) { if (!keys.next()) return false; usuario.setIdUsuario(keys.getInt(1)); return true; }
-        } catch (SQLException e) { throw JdbcSupport.error("guardar el usuario", e); }
+        String sql = "INSERT INTO dbo.Usuario (usuario, password_hash, rol, activo, id_docente) VALUES (?, ?, ?, ?, ?)";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            stmt.setString(1, usuario.getUsuario());
+            stmt.setString(2, usuario.getPasswordHash());
+            stmt.setString(3, usuario.getRol().name());
+            stmt.setBoolean(4, usuario.isActivo());
+            if (usuario.getDocente() != null && usuario.getDocente().getIdDocente() > 0) {
+                stmt.setInt(5, usuario.getDocente().getIdDocente());
+            } else {
+                stmt.setNull(5, Types.INTEGER);
+            }
+            int filasAfectadas = stmt.executeUpdate();
+
+            try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
+                if (generatedKeys.next()) {
+                    usuario.setIdUsuario(generatedKeys.getInt(1));
+                }
+            }
+            return filasAfectadas > 0;
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
     }
-    public Optional<Usuario> buscarPorId(int id) { return buscar(SELECT + "WHERE u.id_usuario = ?", id); }
-    public Optional<Usuario> buscarPorUsuario(String nombre) {
-        try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement(SELECT + "WHERE u.usuario = ?")) { s.setString(1, nombre); try (ResultSet rs = s.executeQuery()) { return rs.next() ? Optional.of(mapear(rs)) : Optional.empty(); } }
-        catch (SQLException e) { throw JdbcSupport.error("buscar el usuario", e); }
-    }
 
-    public Optional<Usuario> autenticar(String nombreUsuario, String passwordPlana) {
-        Optional<Usuario> optUsuario = buscarPorUsuario(nombreUsuario);
-
-        if (optUsuario.isEmpty()) {
-            return Optional.empty();
+    public Optional<Usuario> buscarPorId(int id) {
+        String sql = "SELECT id_usuario, usuario, password_hash, rol, activo, id_docente FROM dbo.Usuario WHERE id_usuario = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, id);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    Usuario u = new Usuario();
+                    u.setIdUsuario(rs.getInt("id_usuario"));
+                    u.setUsuario(rs.getString("usuario"));
+                    u.setPasswordHash(rs.getString("password_hash"));
+                    u.setRol(RolUsuario.valueOf(rs.getString("rol")));
+                    u.setActivo(rs.getBoolean("activo"));
+                    int idDocente = rs.getInt("id_docente");
+                    if (!rs.wasNull() && idDocente > 0) {
+                        Docente d = new Docente();
+                        d.setIdDocente(idDocente);
+                        u.setDocente(d);
+                    }
+                    return Optional.of(u);
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
-
-        Usuario usuario = optUsuario.get();
-
-        if (!usuario.isActivo()) {
-            System.out.println("El usuario está desactivado.");
-            return Optional.empty();
-        }
-
-        if (org.mindrot.jbcrypt.BCrypt.checkpw(passwordPlana, usuario.getPasswordHash())) {
-            return Optional.of(usuario);
-        }
-
         return Optional.empty();
     }
 
-    public List<Usuario> listar() { List<Usuario> r = new ArrayList<>(); try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement(SELECT + "ORDER BY u.usuario"); ResultSet rs = s.executeQuery()) { while (rs.next()) r.add(mapear(rs)); return r; } catch (SQLException e) { throw JdbcSupport.error("consultar usuarios", e); } }
-    public boolean existeUsuario(String nombre) { try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement("SELECT 1 FROM Usuario WHERE usuario = ?")) { s.setString(1, nombre); try (ResultSet rs = s.executeQuery()) { return rs.next(); } } catch (SQLException e) { throw JdbcSupport.error("verificar el usuario", e); } }
-    public boolean existeUsuario(String nombre, int idExcluido) { try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement("SELECT 1 FROM Usuario WHERE usuario = ? AND id_usuario <> ?")) { s.setString(1, nombre); s.setInt(2, idExcluido); try (ResultSet rs = s.executeQuery()) { return rs.next(); } } catch (SQLException e) { throw JdbcSupport.error("verificar el usuario", e); } }
-    public boolean actualizar(Usuario u) {
-        String sql = "UPDATE Usuario SET usuario = ?, password_hash = ?, rol = ?, id_docente = ?, activo = ? WHERE id_usuario = ?";
-        try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement(sql)) { s.setString(1, u.getUsuario()); s.setString(2, u.getPasswordHash()); s.setString(3, u.getRol().name()); if (u.getDocente() == null) s.setNull(4, Types.INTEGER); else s.setInt(4, u.getDocente().getIdDocente()); s.setBoolean(5, u.isActivo()); s.setInt(6, u.getIdUsuario()); return s.executeUpdate() > 0; }
-        catch (SQLException e) { throw JdbcSupport.error("actualizar el usuario", e); }
+    public Optional<Usuario> buscarPorUsuario(String nombreUsuario) {
+        String sql = "SELECT id_usuario, usuario, password_hash, rol, activo, id_docente FROM dbo.Usuario WHERE usuario = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, nombreUsuario);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    Usuario u = new Usuario();
+                    u.setIdUsuario(rs.getInt("id_usuario"));
+                    u.setUsuario(rs.getString("usuario"));
+                    u.setPasswordHash(rs.getString("password_hash"));
+                    u.setRol(RolUsuario.valueOf(rs.getString("rol")));
+                    u.setActivo(rs.getBoolean("activo"));
+                    int idDocente = rs.getInt("id_docente");
+                    if (!rs.wasNull() && idDocente > 0) {
+                        Docente d = new Docente();
+                        d.setIdDocente(idDocente);
+                        u.setDocente(d);
+                    }
+                    return Optional.of(u);
+                }
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return Optional.empty();
     }
-    public boolean desactivar(int id) { try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement("UPDATE Usuario SET activo = 0 WHERE id_usuario = ?")) { s.setInt(1, id); return s.executeUpdate() > 0; } catch (SQLException e) { throw JdbcSupport.error("desactivar el usuario", e); } }
-    public int contar() { try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement("SELECT COUNT(*) FROM Usuario"); ResultSet rs = s.executeQuery()) { rs.next(); return rs.getInt(1); } catch (SQLException e) { throw JdbcSupport.error("contar usuarios", e); } }
-    private Optional<Usuario> buscar(String sql, int id) { try (Connection c = DatabaseConnection.getConnection(); PreparedStatement s = c.prepareStatement(sql)) { s.setInt(1, id); try (ResultSet rs = s.executeQuery()) { return rs.next() ? Optional.of(mapear(rs)) : Optional.empty(); } } catch (SQLException e) { throw JdbcSupport.error("buscar el usuario", e); } }
-    private Usuario mapear(ResultSet rs) throws SQLException {
-        Docente docente = null;
-        if (rs.getObject("id_docente") != null) docente = new Docente(rs.getInt("id_docente"), rs.getString("codigo_empleado"), rs.getString("docente_nombres"), rs.getString("docente_apellidos"), rs.getString("docente_correo"), rs.getBoolean("docente_activo"));
-        return new Usuario(rs.getInt("id_usuario"), rs.getString("usuario"), rs.getString("password_hash"), RolUsuario.valueOf(rs.getString("rol")), docente, rs.getBoolean("activo"), rs.getObject("fecha_creacion", LocalDateTime.class));
+
+    public List<Usuario> listar() {
+        List<Usuario> lista = new ArrayList<>();
+        String sql = "SELECT id_usuario, usuario, password_hash, rol, activo, id_docente FROM dbo.Usuario";
+        try (Connection conn = DatabaseConnection.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                Usuario u = new Usuario();
+                u.setIdUsuario(rs.getInt("id_usuario"));
+                u.setUsuario(rs.getString("usuario"));
+                u.setPasswordHash(rs.getString("password_hash"));
+                u.setRol(RolUsuario.valueOf(rs.getString("rol")));
+                u.setActivo(rs.getBoolean("activo"));
+                int idDocente = rs.getInt("id_docente");
+                if (!rs.wasNull() && idDocente > 0) {
+                    Docente d = new Docente();
+                    d.setIdDocente(idDocente);
+                    u.setDocente(d);
+                }
+                lista.add(u);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return lista;
+    }
+
+    public boolean actualizar(Usuario usuario) {
+        String sql = "UPDATE dbo.Usuario SET password_hash = ?, rol = ?, activo = ?, id_docente = ? WHERE id_usuario = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, usuario.getPasswordHash());
+            stmt.setString(2, usuario.getRol().name());
+            stmt.setBoolean(3, usuario.isActivo());
+            if (usuario.getDocente() != null && usuario.getDocente().getIdDocente() > 0) {
+                stmt.setInt(4, usuario.getDocente().getIdDocente());
+            } else {
+                stmt.setNull(4, Types.INTEGER);
+            }
+            stmt.setInt(5, usuario.getIdUsuario());
+            int filas = stmt.executeUpdate();
+            return filas > 0;
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+    public boolean desactivar(int idUsuario) {
+        String sql = "UPDATE dbo.Usuario SET activo = 0 WHERE id_usuario = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, idUsuario);
+            int filas = stmt.executeUpdate();
+            return filas > 0;
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return false;
     }
 }
