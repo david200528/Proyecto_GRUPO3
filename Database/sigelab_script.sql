@@ -1,177 +1,103 @@
-/* =====================================================================
-   SIGELAB - Sistema de Gestion y Control de Laboratorios Universitarios
-   Script inicial para SQL Server
-   ===================================================================== */
-
-IF DB_ID('SIGELAB') IS NULL
-    CREATE DATABASE SIGELAB;
-GO
-
-USE SIGELAB;
-GO
-
-/* ---------------------------------------------------------------------
-   1. CATALOGOS
-   --------------------------------------------------------------------- */
-
-CREATE TABLE Rol (
-    id_rol      INT IDENTITY(1,1) PRIMARY KEY,
-    nombre      NVARCHAR(30) NOT NULL UNIQUE
+CREATE TABLE SIGELAB.dbo.Usuario (
+                                     id_usuario INT IDENTITY(1,1) PRIMARY KEY,
+                                     nombre VARCHAR(80) NOT NULL,
+                                     apellido VARCHAR(80) NOT NULL,
+                                     usuario VARCHAR(50) NOT NULL UNIQUE,
+                                     password_hash VARCHAR(255) NOT NULL,
+                                     correo VARCHAR(150) NOT NULL UNIQUE,
+                                     rol VARCHAR(20) NOT NULL CHECK (rol IN ('ADMIN', 'ENCARGADO', 'DOCENTE')),
+                                     activo BIT DEFAULT 1 NOT NULL,
+                                     fecha_creacion DATETIME DEFAULT GETDATE() NOT NULL
 );
 
-CREATE TABLE TipoEquipo (
-    id_tipo     INT IDENTITY(1,1) PRIMARY KEY,
-    nombre      NVARCHAR(50)  NOT NULL UNIQUE,
-    descripcion NVARCHAR(150) NULL
+CREATE TABLE SIGELAB.dbo.Laboratorio (
+                                         id_laboratorio INT IDENTITY(1,1) PRIMARY KEY,
+                                         codigo VARCHAR(50) NOT NULL UNIQUE,
+                                         nombre VARCHAR(100) NOT NULL,
+                                         ubicacion VARCHAR(150) NULL,
+                                         capacidad INT DEFAULT 0 CHECK (capacidad >= 0),
+                                         activo BIT DEFAULT 1 NOT NULL
 );
 
-CREATE TABLE Laboratorio (
-    id_laboratorio INT IDENTITY(1,1) PRIMARY KEY,
-    codigo         NVARCHAR(20)  NOT NULL UNIQUE,                -- RN-03
-    nombre         NVARCHAR(100) NOT NULL,
-    ubicacion      NVARCHAR(150) NOT NULL,
-    capacidad      INT           NOT NULL CHECK (capacidad > 0),
-    estado         VARCHAR(10)   NOT NULL DEFAULT 'ACTIVO'
-                   CHECK (estado IN ('ACTIVO','INACTIVO'))
+CREATE TABLE SIGELAB.dbo.TipoEquipo (
+                                        id_tipo_equipo INT IDENTITY(1,1) PRIMARY KEY,
+                                        nombre VARCHAR(50) NOT NULL UNIQUE,
+                                        descripcion VARCHAR(255) NULL
 );
 
-/* ---------------------------------------------------------------------
-   2. USUARIOS
-   --------------------------------------------------------------------- */
-
-CREATE TABLE Usuario (
-    id_usuario    INT IDENTITY(1,1) PRIMARY KEY,
-    nombre        NVARCHAR(60)  NOT NULL,
-    apellido      NVARCHAR(60)  NOT NULL,
-    username      NVARCHAR(40)  NOT NULL UNIQUE,
-    password_hash VARCHAR(64)   NOT NULL,        -- SHA-256 en hexadecimal, nunca texto plano
-    correo        NVARCHAR(100) NOT NULL UNIQUE,
-    id_rol        INT           NOT NULL,
-    estado        VARCHAR(10)   NOT NULL DEFAULT 'ACTIVO'
-                  CHECK (estado IN ('ACTIVO','INACTIVO')),   -- RN-01
-    CONSTRAINT FK_Usuario_Rol FOREIGN KEY (id_rol) REFERENCES Rol(id_rol)
+CREATE TABLE SIGELAB.dbo.Equipo (
+                                    id_equipo INT IDENTITY(1,1) PRIMARY KEY,
+                                    codigo_inventario VARCHAR(50) NOT NULL UNIQUE,
+                                    nombre VARCHAR(100) NOT NULL,
+                                    id_tipo_equipo INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.TipoEquipo(id_tipo_equipo),
+                                    marca VARCHAR(50) NULL,
+                                    modelo VARCHAR(50) NULL,
+                                    numero_serie VARCHAR(100) NULL,
+                                    id_laboratorio INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Laboratorio(id_laboratorio),
+                                    estado VARCHAR(20) DEFAULT 'DISPONIBLE' NOT NULL CHECK (estado IN ('DISPONIBLE', 'PRESTADO', 'DANADO', 'MANTENIMIENTO', 'BAJA')),
+                                    observaciones VARCHAR(255) NULL
 );
 
-/* ---------------------------------------------------------------------
-   3. EQUIPOS
-   --------------------------------------------------------------------- */
-
-CREATE TABLE Equipo (
-    id_equipo         INT IDENTITY(1,1) PRIMARY KEY,
-    codigo_inventario NVARCHAR(30)  NOT NULL UNIQUE,         -- RN-04 (tambien es el valor del QR)
-    nombre            NVARCHAR(100) NOT NULL,
-    id_tipo           INT           NOT NULL,
-    marca             NVARCHAR(50)  NOT NULL,
-    modelo            NVARCHAR(50)  NOT NULL,
-    numero_serie      NVARCHAR(60)  NOT NULL UNIQUE,
-    id_laboratorio    INT           NOT NULL,
-    estado            VARCHAR(15)   NOT NULL DEFAULT 'DISPONIBLE'
-                      CHECK (estado IN ('DISPONIBLE','PRESTADO','DANADO','MANTENIMIENTO','BAJA')),
-    observaciones     NVARCHAR(255) NULL,
-    CONSTRAINT FK_Equipo_Tipo FOREIGN KEY (id_tipo)        REFERENCES TipoEquipo(id_tipo),
-    CONSTRAINT FK_Equipo_Lab  FOREIGN KEY (id_laboratorio) REFERENCES Laboratorio(id_laboratorio)
+CREATE TABLE SIGELAB.dbo.Prestamo (
+                                      id_prestamo INT IDENTITY(1,1) PRIMARY KEY,
+                                      solicitante VARCHAR(150) NOT NULL,
+                                      fecha_prestamo DATETIME DEFAULT GETDATE() NOT NULL,
+                                      fecha_esperada DATETIME NOT NULL,
+                                      id_usuario_registra INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Usuario(id_usuario),
+                                      estado VARCHAR(20) DEFAULT 'ACTIVO' NOT NULL CHECK (estado IN ('ACTIVO', 'FINALIZADO')),
+                                      observaciones VARCHAR(255) NULL
 );
 
-/* ---------------------------------------------------------------------
-   4. PRESTAMOS (encabezado + detalle) Y DEVOLUCIONES
-   --------------------------------------------------------------------- */
-
-CREATE TABLE Prestamo (
-    id_prestamo               INT IDENTITY(1,1) PRIMARY KEY,
-    id_solicitante            INT          NOT NULL,         -- quien se lleva los equipos
-    id_usuario_registra       INT          NOT NULL,         -- quien registra el prestamo
-    fecha_prestamo            DATETIME2    NOT NULL DEFAULT SYSDATETIME(),
-    fecha_esperada_devolucion DATETIME2    NOT NULL,
-    estado                    VARCHAR(10)  NOT NULL DEFAULT 'ACTIVO'
-                              CHECK (estado IN ('ACTIVO','FINALIZADO')),
-    observaciones             NVARCHAR(255) NULL,
-    CONSTRAINT CK_Prestamo_Fechas CHECK (fecha_esperada_devolucion >= fecha_prestamo),
-    CONSTRAINT FK_Prestamo_Solicitante FOREIGN KEY (id_solicitante)      REFERENCES Usuario(id_usuario),
-    CONSTRAINT FK_Prestamo_Registra    FOREIGN KEY (id_usuario_registra) REFERENCES Usuario(id_usuario)
+CREATE TABLE SIGELAB.dbo.DetallePrestamo (
+                                             id_detalle INT IDENTITY(1,1) PRIMARY KEY,
+                                             id_prestamo INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Prestamo(id_prestamo),
+                                             id_equipo INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Equipo(id_equipo),
+                                             estado_devolucion VARCHAR(20) DEFAULT 'PENDIENTE' NOT NULL CHECK (estado_devolucion IN ('PENDIENTE', 'DEVUELTO')),
+                                             CONSTRAINT UQ_Detalle_prestamo_equipo UNIQUE (id_prestamo, id_equipo)
 );
 
-CREATE TABLE DetallePrestamo (
-    id_detalle  INT IDENTITY(1,1) PRIMARY KEY,
-    id_prestamo INT NOT NULL,
-    id_equipo   INT NOT NULL,
-    CONSTRAINT FK_Detalle_Prestamo FOREIGN KEY (id_prestamo) REFERENCES Prestamo(id_prestamo),
-    CONSTRAINT FK_Detalle_Equipo   FOREIGN KEY (id_equipo)   REFERENCES Equipo(id_equipo),
-    CONSTRAINT UQ_Detalle_Prestamo_Equipo UNIQUE (id_prestamo, id_equipo)   -- RN-06
+CREATE TABLE SIGELAB.dbo.Devolucion (
+                                        id_devolucion INT IDENTITY(1,1) PRIMARY KEY,
+                                        id_detalle INT NOT NULL UNIQUE FOREIGN KEY REFERENCES SIGELAB.dbo.DetallePrestamo(id_detalle),
+                                        fecha_devolucion DATETIME DEFAULT GETDATE() NOT NULL,
+                                        condicion VARCHAR(20) NOT NULL CHECK (condicion IN ('BUENO', 'DANADO')),
+                                        observaciones VARCHAR(255) NULL,
+                                        id_usuario_registra INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Usuario(id_usuario)
 );
 
-CREATE TABLE Devolucion (
-    id_devolucion     INT IDENTITY(1,1) PRIMARY KEY,
-    id_detalle        INT          NOT NULL UNIQUE,          -- RN-11: un detalle solo se devuelve una vez
-    id_usuario_recibe INT          NOT NULL,
-    fecha_devolucion  DATETIME2    NOT NULL DEFAULT SYSDATETIME(),
-    condicion         VARCHAR(10)  NOT NULL CHECK (condicion IN ('BUENO','DANADO')),
-    observaciones     NVARCHAR(255) NULL,
-    CONSTRAINT FK_Devolucion_Detalle FOREIGN KEY (id_detalle)        REFERENCES DetallePrestamo(id_detalle),
-    CONSTRAINT FK_Devolucion_Usuario FOREIGN KEY (id_usuario_recibe) REFERENCES Usuario(id_usuario)
+CREATE TABLE SIGELAB.dbo.Mantenimiento (
+                                           id_mantenimiento INT IDENTITY(1,1) PRIMARY KEY,
+                                           id_equipo INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Equipo(id_equipo),
+                                           fecha_ingreso DATETIME DEFAULT GETDATE() NOT NULL,
+                                           tipo_mantenimiento VARCHAR(20) NOT NULL CHECK (tipo_mantenimiento IN ('PREVENTIVO', 'CORRECTIVO')),
+                                           descripcion VARCHAR(255) NOT NULL,
+                                           responsable VARCHAR(100) NOT NULL,
+                                           fecha_salida DATETIME NULL,
+                                           resultado VARCHAR(20) NULL CHECK (resultado IN ('REPARADO', 'NO_REPARABLE')),
+                                           estado VARCHAR(20) DEFAULT 'EN_PROCESO' NOT NULL CHECK (estado IN ('EN_PROCESO', 'FINALIZADO')),
+                                           observaciones VARCHAR(255) NULL
 );
 
-/* ---------------------------------------------------------------------
-   5. MANTENIMIENTO
-   --------------------------------------------------------------------- */
-
-CREATE TABLE Mantenimiento (
-    id_mantenimiento INT IDENTITY(1,1) PRIMARY KEY,
-    id_equipo        INT           NOT NULL,
-    tipo             VARCHAR(12)   NOT NULL CHECK (tipo IN ('PREVENTIVO','CORRECTIVO')),
-    fecha_ingreso    DATETIME2     NOT NULL DEFAULT SYSDATETIME(),
-    descripcion      NVARCHAR(255) NOT NULL,
-    responsable      NVARCHAR(100) NOT NULL,
-    fecha_salida     DATETIME2     NULL,
-    resultado        VARCHAR(15)   NULL CHECK (resultado IN ('REPARADO','NO_REPARABLE')),
-    estado           VARCHAR(12)   NOT NULL DEFAULT 'EN_PROCESO'
-                     CHECK (estado IN ('EN_PROCESO','FINALIZADO')),
-    observaciones    NVARCHAR(255) NULL,
-    CONSTRAINT CK_Mant_Fechas CHECK (fecha_salida IS NULL OR fecha_salida >= fecha_ingreso),
-    CONSTRAINT FK_Mant_Equipo FOREIGN KEY (id_equipo) REFERENCES Equipo(id_equipo)
+CREATE TABLE SIGELAB.dbo.bitacora_auditoria (
+                                                id_auditoria INT IDENTITY(1,1) PRIMARY KEY,
+                                                id_usuario INT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Usuario(id_usuario),
+                                                usuario VARCHAR(50) NOT NULL,
+                                                fecha_hora DATETIME DEFAULT GETDATE() NOT NULL,
+                                                accion VARCHAR(50) NOT NULL,
+                                                entidad VARCHAR(50) NULL,
+                                                id_registro INT NULL,
+                                                detalle VARCHAR(255) NULL
 );
 
-/* ---------------------------------------------------------------------
-   6. AUDITORIA
-   --------------------------------------------------------------------- */
+INSERT INTO SIGELAB.dbo.Usuario (nombre, apellido, usuario, password_hash, correo, rol, activo)
+VALUES ('Administrador', 'Sistema', 'admin', '$2a$10$zw9K7KoEOLMVIHpKSSYHDeFthhIQwTgdmy4M7/UxtSs3QSKvjocgG', 'admin@sigelab.edu', 'ADMIN', 1);
 
-CREATE TABLE Auditoria (
-    id_auditoria INT IDENTITY(1,1) PRIMARY KEY,
-    id_usuario   INT           NULL,           -- NULL cuando el login falla con un usuario inexistente
-    fecha_hora   DATETIME2     NOT NULL DEFAULT SYSDATETIME(),
-    accion       VARCHAR(50)   NOT NULL,       -- ej. PRESTAMO_CREADO
-    entidad      VARCHAR(50)   NOT NULL,       -- ej. Prestamo
-    id_registro  INT           NULL,
-    descripcion  NVARCHAR(255) NULL,
-    CONSTRAINT FK_Auditoria_Usuario FOREIGN KEY (id_usuario) REFERENCES Usuario(id_usuario)
-);
-GO
-/* ---------------------------------------------------------------------
-   7. DATOS MINIMOS DE PRUEBA
-   Contrasenas de prueba: admin123 / encargado123 / docente123
-   --------------------------------------------------------------------- */
-
-INSERT INTO Rol (nombre) VALUES ('ADMIN'), ('ENCARGADO'), ('DOCENTE');
-
-INSERT INTO Usuario (nombre, apellido, username, password_hash, correo, id_rol)
-VALUES
- (N'Admin',     N'Sistema', 'admin',     CONVERT(VARCHAR(64), HASHBYTES('SHA2_256','admin123'),2),     'admin@umg.edu.gt',     1),
- (N'Encargado', N'Lab',     'encargado', CONVERT(VARCHAR(64), HASHBYTES('SHA2_256','encargado123'),2), 'encargado@umg.edu.gt', 2),
- (N'Docente',   N'Prueba',  'docente',   CONVERT(VARCHAR(64), HASHBYTES('SHA2_256','docente123'),2),   'docente@umg.edu.gt',   3);
-
-INSERT INTO TipoEquipo (nombre, descripcion) VALUES
- (N'Laptop',    N'Computadoras portatiles'),
- (N'Camara',    N'Camaras fotograficas y de video'),
- (N'Proyector', N'Proyectores multimedia'),
- (N'Router',    N'Equipos de enrutamiento'),
- (N'Tablet',    N'Tabletas');
-
-INSERT INTO Laboratorio (codigo, nombre, ubicacion, capacidad) VALUES
- ('LAB-01', N'Laboratorio de Computo 1', N'Edificio A, nivel 2', 30),
- ('LAB-02', N'Laboratorio de Redes',     N'Edificio B, nivel 1', 20);
-
-INSERT INTO Equipo (codigo_inventario, nombre, id_tipo, marca, modelo, numero_serie, id_laboratorio) VALUES
- ('LAP-001', N'Laptop Dell 1',   1, 'Dell',  'Latitude 5420', 'SN-LAP-001', 1),
- ('LAP-002', N'Laptop Dell 2',   1, 'Dell',  'Latitude 5420', 'SN-LAP-002', 1),
- ('CAM-001', N'Camara Canon 1',  2, 'Canon', 'EOS 250D',      'SN-CAM-001', 1),
- ('PRO-001', N'Proyector Epson', 3, 'Epson', 'X49',           'SN-PRO-001', 1),
- ('ROU-001', N'Router Cisco',    4, 'Cisco', 'ISR 1100',      'SN-ROU-001', 2);
+INSERT INTO SIGELAB.dbo.TipoEquipo (nombre, descripcion) VALUES
+                                                             ('Laptop', 'Computadoras portatiles'),
+                                                             ('Camara', 'Camaras fotograficas y de video'),
+                                                             ('Proyector', 'Proyectores multimedia'),
+                                                             ('Router', 'Equipos de enrutamiento'),
+                                                             ('Switch', 'Equipos de conmutacion'),
+                                                             ('Tablet', 'Tabletas'),
+                                                             ('Monitor', 'Monitores'),
+                                                             ('Kit electronico', 'Kits de practicas electronicas');

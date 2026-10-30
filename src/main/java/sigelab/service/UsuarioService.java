@@ -1,66 +1,104 @@
 package sigelab.service;
 
 import org.mindrot.jbcrypt.BCrypt;
+import sigelab.enums.AccionAuditoria;
 import sigelab.enums.RolUsuario;
 import sigelab.model.Usuario;
-import sigelab.model.Docente;
 import sigelab.repository.UsuarioRepository;
 import sigelab.util.BusinessException;
+import sigelab.util.Permisos;
+import sigelab.util.Validacion;
 
 import java.util.List;
 import java.util.Optional;
 
 public class UsuarioService {
-    private final UsuarioRepository repository;
-    public UsuarioService() { this(new UsuarioRepository()); }
-    public UsuarioService(UsuarioRepository repository) { this.repository = repository; }
+    private final UsuarioRepository usuarioRepository;
+    private final AuditoriaService auditoria = new AuditoriaService();
 
-    public Usuario crearUsuario(String usuario, String password, RolUsuario rol, Docente docente) {
-        if (usuario == null || usuario.isBlank()) throw new BusinessException("El usuario es obligatorio.");
-        if (password == null || password.isBlank()) throw new BusinessException("La contraseña es obligatoria.");
-        if (rol == null) throw new BusinessException("El rol es obligatorio.");
-        if (rol == RolUsuario.DOCENTE && (docente == null || docente.getIdDocente() <= 0)) throw new BusinessException("Un usuario DOCENTE debe tener docente relacionado.");
-        if (rol == RolUsuario.ADMIN && docente != null) throw new BusinessException("Un usuario ADMIN no debe tener docente relacionado.");
-        if (repository.existeUsuario(usuario)) throw new BusinessException("El nombre de usuario ya está registrado.");
-        Usuario nuevo = new Usuario(usuario, BCrypt.hashpw(password, BCrypt.gensalt()), rol, docente);
-        repository.guardar(nuevo);
+    public UsuarioService() {
+        this(new UsuarioRepository());
+    }
+
+    public UsuarioService(UsuarioRepository usuarioRepository) {
+        this.usuarioRepository = usuarioRepository;
+    }
+
+    public boolean existeUsuario(String usuario) {
+        return usuarioRepository.existeUsuario(usuario);
+    }
+
+    public Usuario crearUsuario(Usuario actor, Usuario nuevo, String password) {
+        Permisos.requerir(actor, RolUsuario.ADMIN);
+        nuevo.setNombre(Validacion.obligatorio(nuevo.getNombre(), "nombre", 80));
+        nuevo.setApellido(Validacion.obligatorio(nuevo.getApellido(), "apellido", 80));
+        nuevo.setUsuario(Validacion.obligatorio(nuevo.getUsuario(), "usuario", 50));
+        nuevo.setCorreo(Validacion.correo(nuevo.getCorreo()));
+        Validacion.requerido(nuevo.getRol(), "Seleccione el rol del usuario.");
+        validarPassword(password);
+        if (usuarioRepository.existeUsuario(nuevo.getUsuario())) {
+            throw new BusinessException("Ya existe el usuario " + nuevo.getUsuario() + ".");
+        }
+        nuevo.setPasswordHash(BCrypt.hashpw(password, BCrypt.gensalt()));
+        nuevo.setActivo(true);
+        usuarioRepository.guardar(nuevo);
+        auditoria.registrar(actor, AccionAuditoria.USUARIO_CREADO, "Usuario", nuevo.getIdUsuario(),
+                "Usuario " + nuevo.getUsuario() + " (" + nuevo.getRol() + ")");
         return nuevo;
     }
 
-    /** Guarda un usuario que ya trae un hash BCrypt; no acepta contraseñas planas. */
-    public boolean guardar(Usuario usuario) {
-        validarUsuario(usuario);
-        if (!esHashBcrypt(usuario.getPasswordHash())) throw new BusinessException("passwordHash debe ser un hash BCrypt.");
-        if (repository.existeUsuario(usuario.getUsuario())) throw new BusinessException("El nombre de usuario ya está registrado.");
-        return repository.guardar(usuario);
+    /** Valida usuario, contraseña y estado ACTIVO (RN-01). No registra auditoría: lo hace el login completo. */
+    public Optional<Usuario> autenticar(String nombreUsuario, String password) {
+        Optional<Usuario> opt = usuarioRepository.buscarPorUsuario(nombreUsuario);
+        if (opt.isPresent()) {
+            Usuario u = opt.get();
+            if (u.isActivo() && u.getPasswordHash() != null && BCrypt.checkpw(password, u.getPasswordHash())) {
+                return Optional.of(u);
+            }
+        }
+        return Optional.empty();
     }
-    public Optional<Usuario> buscar(int id) { return repository.buscarPorId(id); }
-    public Optional<Usuario> buscarPorUsuario(String nombre) { return repository.buscarPorUsuario(nombre); }
-    public List<Usuario> listar() { return repository.listar(); }
-    public boolean actualizar(Usuario usuario) {
-        validarUsuario(usuario);
-        if (usuario.getIdUsuario() <= 0) throw new BusinessException("El usuario no tiene un ID válido.");
-        if (!esHashBcrypt(usuario.getPasswordHash())) throw new BusinessException("passwordHash debe ser un hash BCrypt.");
-        if (repository.existeUsuario(usuario.getUsuario(), usuario.getIdUsuario())) throw new BusinessException("El nombre de usuario ya está registrado.");
-        return repository.actualizar(usuario);
+
+    public Optional<Usuario> buscar(int id) {
+        return usuarioRepository.buscarPorId(id);
     }
-    /** Actualiza un usuario y deja el hash de la nueva contraseña en esta capa. */
-    public boolean actualizarConPassword(Usuario usuario, String password) {
-        if (password == null || password.isBlank()) throw new BusinessException("La contraseña es obligatoria.");
-        validarUsuario(usuario);
-        if (usuario.getIdUsuario() <= 0) throw new BusinessException("El usuario no tiene un ID válido.");
-        if (repository.existeUsuario(usuario.getUsuario(), usuario.getIdUsuario())) throw new BusinessException("El nombre de usuario ya está registrado.");
-        usuario.setPasswordHash(BCrypt.hashpw(password, BCrypt.gensalt()));
-        return repository.actualizar(usuario);
+
+    public Optional<Usuario> buscarPorUsuario(String nombreUsuario) {
+        return usuarioRepository.buscarPorUsuario(nombreUsuario);
     }
-    public boolean desactivar(int id) { return repository.desactivar(id); }
-    public Optional<Usuario> autenticar(String usuario, String password) {
-        if (usuario == null || password == null) return Optional.empty();
-        Optional<Usuario> encontrado = repository.buscarPorUsuario(usuario);
-        if (encontrado.isEmpty() || !encontrado.get().isActivo()) return Optional.empty();
-        try { return BCrypt.checkpw(password, encontrado.get().getPasswordHash()) ? encontrado : Optional.empty(); }
-        catch (IllegalArgumentException e) { return Optional.empty(); }
+
+    public List<Usuario> listar(Usuario actor) {
+        Permisos.requerir(actor, RolUsuario.ADMIN);
+        return usuarioRepository.listar();
     }
-    private void validarUsuario(Usuario u) { if (u == null || u.getUsuario() == null || u.getUsuario().isBlank()) throw new BusinessException("El usuario es obligatorio."); if (u.getRol() == null) throw new BusinessException("El rol es obligatorio."); if (u.getRol() == RolUsuario.DOCENTE && (u.getDocente() == null || u.getDocente().getIdDocente() <= 0)) throw new BusinessException("Un usuario DOCENTE debe tener docente relacionado."); if (u.getRol() == RolUsuario.ADMIN && u.getDocente() != null) throw new BusinessException("Un usuario ADMIN no debe tener docente relacionado."); }
-    private boolean esHashBcrypt(String hash) { return hash != null && hash.matches("\\A\\$2[aby]?\\$\\d{2}\\$[./A-Za-z0-9]{53}\\z"); }
+
+    public boolean actualizar(Usuario actor, Usuario usuario, String passwordNueva) {
+        Permisos.requerir(actor, RolUsuario.ADMIN);
+        usuario.setNombre(Validacion.obligatorio(usuario.getNombre(), "nombre", 80));
+        usuario.setApellido(Validacion.obligatorio(usuario.getApellido(), "apellido", 80));
+        usuario.setCorreo(Validacion.correo(usuario.getCorreo()));
+        Validacion.requerido(usuario.getRol(), "Seleccione el rol del usuario.");
+        if (passwordNueva != null && !passwordNueva.isBlank()) {
+            validarPassword(passwordNueva);
+            usuario.setPasswordHash(BCrypt.hashpw(passwordNueva, BCrypt.gensalt()));
+        }
+        if (!usuario.isActivo() && usuario.getIdUsuario() == actor.getIdUsuario()) {
+            throw new BusinessException("No puede desactivar su propio usuario.");
+        }
+        return usuarioRepository.actualizar(usuario);
+    }
+
+    public boolean desactivar(Usuario actor, int idUsuario) {
+        Permisos.requerir(actor, RolUsuario.ADMIN);
+        if (idUsuario == actor.getIdUsuario()) throw new BusinessException("No puede desactivar su propio usuario.");
+        boolean ok = usuarioRepository.desactivar(idUsuario);
+        if (ok) auditoria.registrar(actor, AccionAuditoria.USUARIO_DESACTIVADO, "Usuario", idUsuario, "Usuario desactivado");
+        return ok;
+    }
+
+    private void validarPassword(String password) {
+        if (password == null || password.length() < 4) {
+            throw new BusinessException("La contraseña debe tener al menos 4 caracteres.");
+        }
+    }
 }
