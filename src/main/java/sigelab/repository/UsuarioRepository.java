@@ -1,9 +1,10 @@
 package sigelab.repository;
 
 import sigelab.config.DatabaseConnection;
-import sigelab.model.Usuario;
-import sigelab.model.Docente;
 import sigelab.enums.RolUsuario;
+import sigelab.model.Usuario;
+import sigelab.util.BusinessException;
+import sigelab.util.JdbcSupport;
 
 import java.sql.*;
 import java.util.ArrayList;
@@ -11,181 +12,99 @@ import java.util.List;
 import java.util.Optional;
 
 public class UsuarioRepository {
+    private static final String SELECT = "SELECT id_usuario, nombre, apellido, usuario, password_hash, correo, rol, "
+            + "activo, fecha_creacion FROM dbo.Usuario ";
 
     public boolean existeUsuario(String usuario) {
-        String sql = "SELECT COUNT(*) FROM dbo.Usuario WHERE usuario = ?";
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, usuario);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1) > 0;
-                }
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return false;
+        return buscarPorUsuario(usuario).isPresent();
     }
 
-    public boolean existeUsuario(String usuario, int idUsuarioToExclude) {
-        String sql = "SELECT COUNT(*) FROM dbo.Usuario WHERE usuario = ? AND id_usuario <> ?";
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, usuario);
-            stmt.setInt(2, idUsuarioToExclude);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1) > 0;
-                }
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return false;
-    }
-
-    public boolean guardar(Usuario usuario) {
-        String sql = "INSERT INTO dbo.Usuario (usuario, password_hash, rol, activo, id_docente) VALUES (?, ?, ?, ?, ?)";
+    public void guardar(Usuario u) {
+        String sql = "INSERT INTO dbo.Usuario (nombre, apellido, usuario, password_hash, correo, rol, activo) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?)";
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            stmt.setString(1, usuario.getUsuario());
-            stmt.setString(2, usuario.getPasswordHash());
-            stmt.setString(3, usuario.getRol().name());
-            stmt.setBoolean(4, usuario.isActivo());
-            if (usuario.getDocente() != null && usuario.getDocente().getIdDocente() > 0) {
-                stmt.setInt(5, usuario.getDocente().getIdDocente());
-            } else {
-                stmt.setNull(5, Types.INTEGER);
+            JdbcSupport.asignar(stmt, u.getNombre(), u.getApellido(), u.getUsuario(), u.getPasswordHash(),
+                    u.getCorreo(), u.getRol(), u.isActivo());
+            stmt.executeUpdate();
+            try (ResultSet keys = stmt.getGeneratedKeys()) {
+                if (keys.next()) u.setIdUsuario(keys.getInt(1));
             }
-            int filasAfectadas = stmt.executeUpdate();
-
-            try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
-                if (generatedKeys.next()) {
-                    usuario.setIdUsuario(generatedKeys.getInt(1));
-                }
-            }
-            return filasAfectadas > 0;
         } catch (SQLException e) {
-            e.printStackTrace();
+            if (JdbcSupport.esDuplicado(e)) {
+                throw new BusinessException("Ya existe un usuario con el nombre de usuario o el correo indicado.");
+            }
+            throw JdbcSupport.error("guardar el usuario", e);
         }
-        return false;
     }
 
     public Optional<Usuario> buscarPorId(int id) {
-        String sql = "SELECT id_usuario, usuario, password_hash, rol, activo, id_docente FROM dbo.Usuario WHERE id_usuario = ?";
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, id);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    Usuario u = new Usuario();
-                    u.setIdUsuario(rs.getInt("id_usuario"));
-                    u.setUsuario(rs.getString("usuario"));
-                    u.setPasswordHash(rs.getString("password_hash"));
-                    u.setRol(RolUsuario.valueOf(rs.getString("rol")));
-                    u.setActivo(rs.getBoolean("activo"));
-                    int idDocente = rs.getInt("id_docente");
-                    if (!rs.wasNull() && idDocente > 0) {
-                        Docente d = new Docente();
-                        d.setIdDocente(idDocente);
-                        u.setDocente(d);
-                    }
-                    return Optional.of(u);
-                }
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return Optional.empty();
+        return uno(SELECT + "WHERE id_usuario = ?", id);
     }
 
     public Optional<Usuario> buscarPorUsuario(String nombreUsuario) {
-        String sql = "SELECT id_usuario, usuario, password_hash, rol, activo, id_docente FROM dbo.Usuario WHERE usuario = ?";
-        try (Connection conn = DatabaseConnection.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, nombreUsuario);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    Usuario u = new Usuario();
-                    u.setIdUsuario(rs.getInt("id_usuario"));
-                    u.setUsuario(rs.getString("usuario"));
-                    u.setPasswordHash(rs.getString("password_hash"));
-                    u.setRol(RolUsuario.valueOf(rs.getString("rol")));
-                    u.setActivo(rs.getBoolean("activo"));
-                    int idDocente = rs.getInt("id_docente");
-                    if (!rs.wasNull() && idDocente > 0) {
-                        Docente d = new Docente();
-                        d.setIdDocente(idDocente);
-                        u.setDocente(d);
-                    }
-                    return Optional.of(u);
-                }
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return Optional.empty();
+        return uno(SELECT + "WHERE usuario = ?", nombreUsuario);
     }
 
     public List<Usuario> listar() {
         List<Usuario> lista = new ArrayList<>();
-        String sql = "SELECT id_usuario, usuario, password_hash, rol, activo, id_docente FROM dbo.Usuario";
         try (Connection conn = DatabaseConnection.getConnection();
              Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
-            while (rs.next()) {
-                Usuario u = new Usuario();
-                u.setIdUsuario(rs.getInt("id_usuario"));
-                u.setUsuario(rs.getString("usuario"));
-                u.setPasswordHash(rs.getString("password_hash"));
-                u.setRol(RolUsuario.valueOf(rs.getString("rol")));
-                u.setActivo(rs.getBoolean("activo"));
-                int idDocente = rs.getInt("id_docente");
-                if (!rs.wasNull() && idDocente > 0) {
-                    Docente d = new Docente();
-                    d.setIdDocente(idDocente);
-                    u.setDocente(d);
-                }
-                lista.add(u);
-            }
+             ResultSet rs = stmt.executeQuery(SELECT + "ORDER BY usuario")) {
+            while (rs.next()) lista.add(mapear(rs));
         } catch (SQLException e) {
-            e.printStackTrace();
+            throw JdbcSupport.error("consultar los usuarios", e);
         }
         return lista;
     }
 
-    public boolean actualizar(Usuario usuario) {
-        String sql = "UPDATE dbo.Usuario SET password_hash = ?, rol = ?, activo = ?, id_docente = ? WHERE id_usuario = ?";
+    public boolean actualizar(Usuario u) {
+        String sql = "UPDATE dbo.Usuario SET nombre = ?, apellido = ?, correo = ?, password_hash = ?, rol = ?, "
+                + "activo = ? WHERE id_usuario = ?";
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, usuario.getPasswordHash());
-            stmt.setString(2, usuario.getRol().name());
-            stmt.setBoolean(3, usuario.isActivo());
-            if (usuario.getDocente() != null && usuario.getDocente().getIdDocente() > 0) {
-                stmt.setInt(4, usuario.getDocente().getIdDocente());
-            } else {
-                stmt.setNull(4, Types.INTEGER);
-            }
-            stmt.setInt(5, usuario.getIdUsuario());
-            int filas = stmt.executeUpdate();
-            return filas > 0;
+            JdbcSupport.asignar(stmt, u.getNombre(), u.getApellido(), u.getCorreo(), u.getPasswordHash(),
+                    u.getRol(), u.isActivo(), u.getIdUsuario());
+            return stmt.executeUpdate() > 0;
         } catch (SQLException e) {
-            e.printStackTrace();
+            if (JdbcSupport.esDuplicado(e)) throw new BusinessException("Ya existe otro usuario con ese correo.");
+            throw JdbcSupport.error("actualizar el usuario", e);
         }
-        return false;
     }
 
     public boolean desactivar(int idUsuario) {
-        String sql = "UPDATE dbo.Usuario SET activo = 0 WHERE id_usuario = ?";
+        try (Connection conn = DatabaseConnection.getConnection();
+             PreparedStatement stmt = conn.prepareStatement("UPDATE dbo.Usuario SET activo = 0 WHERE id_usuario = ?")) {
+            stmt.setInt(1, idUsuario);
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            throw JdbcSupport.error("desactivar el usuario", e);
+        }
+    }
+
+    private Optional<Usuario> uno(String sql, Object param) {
         try (Connection conn = DatabaseConnection.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, idUsuario);
-            int filas = stmt.executeUpdate();
-            return filas > 0;
+            JdbcSupport.asignar(stmt, param);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next() ? Optional.of(mapear(rs)) : Optional.empty();
+            }
         } catch (SQLException e) {
-            e.printStackTrace();
+            throw JdbcSupport.error("consultar el usuario", e);
         }
-        return false;
+    }
+
+    private Usuario mapear(ResultSet rs) throws SQLException {
+        Usuario u = new Usuario();
+        u.setIdUsuario(rs.getInt("id_usuario"));
+        u.setNombre(rs.getString("nombre"));
+        u.setApellido(rs.getString("apellido"));
+        u.setUsuario(rs.getString("usuario"));
+        u.setPasswordHash(rs.getString("password_hash"));
+        u.setCorreo(rs.getString("correo"));
+        u.setRol(RolUsuario.valueOf(rs.getString("rol")));
+        u.setActivo(rs.getBoolean("activo"));
+        u.setFechaCreacion(JdbcSupport.localDateTime(rs, "fecha_creacion"));
+        return u;
     }
 }

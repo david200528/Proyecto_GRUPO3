@@ -1,3 +1,4 @@
+"""
 SIGELAB - Componente de reconocimiento facial (segundo factor del login).
 
 API local que usa la camara del equipo y OpenCV (LBPH). Cumple el contrato que
@@ -366,5 +367,3 @@ if __name__ == "__main__":
     # OpenCV necesita dibujar su ventana (en otros hilos puede congelarse en Windows).
     # debug=False: el modo debug reinicia el servidor y abriria la camara dos veces.
     app.run(host="127.0.0.1", port=PUERTO, debug=False, threaded=False)
-
-Claude ha terminado la respuesta

@@ -1,18 +1,11 @@
-CREATE TABLE SIGELAB.dbo.Docente (
-                                     id_docente INT IDENTITY(1,1) PRIMARY KEY,
-                                     codigo_empleado VARCHAR(50) NOT NULL UNIQUE,
-                                     nombres VARCHAR(100) NOT NULL,
-                                     apellidos VARCHAR(100) NOT NULL,
-                                     correo VARCHAR(150) NOT NULL UNIQUE,
-                                     activo BIT DEFAULT 1 NOT NULL
-);
-
 CREATE TABLE SIGELAB.dbo.Usuario (
                                      id_usuario INT IDENTITY(1,1) PRIMARY KEY,
+                                     nombre VARCHAR(80) NOT NULL,
+                                     apellido VARCHAR(80) NOT NULL,
                                      usuario VARCHAR(50) NOT NULL UNIQUE,
                                      password_hash VARCHAR(255) NOT NULL,
+                                     correo VARCHAR(150) NOT NULL UNIQUE,
                                      rol VARCHAR(20) NOT NULL CHECK (rol IN ('ADMIN', 'ENCARGADO', 'DOCENTE')),
-                                     id_docente INT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Docente(id_docente),
                                      activo BIT DEFAULT 1 NOT NULL,
                                      fecha_creacion DATETIME DEFAULT GETDATE() NOT NULL
 );
@@ -41,7 +34,7 @@ CREATE TABLE SIGELAB.dbo.Equipo (
                                     modelo VARCHAR(50) NULL,
                                     numero_serie VARCHAR(100) NULL,
                                     id_laboratorio INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Laboratorio(id_laboratorio),
-                                    estado VARCHAR(20) DEFAULT 'DISPONIBLE' NOT NULL CHECK (estado IN ('DISPONIBLE', 'PRESTADO', 'DAÑADO', 'MANTENIMIENTO', 'BAJA')),
+                                    estado VARCHAR(20) DEFAULT 'DISPONIBLE' NOT NULL CHECK (estado IN ('DISPONIBLE', 'PRESTADO', 'DANADO', 'MANTENIMIENTO', 'BAJA')),
                                     observaciones VARCHAR(255) NULL
 );
 
@@ -51,7 +44,7 @@ CREATE TABLE SIGELAB.dbo.Prestamo (
                                       fecha_prestamo DATETIME DEFAULT GETDATE() NOT NULL,
                                       fecha_esperada DATETIME NOT NULL,
                                       id_usuario_registra INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Usuario(id_usuario),
-                                      estado VARCHAR(20) DEFAULT 'ACTIVO' NOT NULL CHECK (estado IN ('ACTIVO', 'FINALIZADO', 'VENCIDO')),
+                                      estado VARCHAR(20) DEFAULT 'ACTIVO' NOT NULL CHECK (estado IN ('ACTIVO', 'FINALIZADO')),
                                       observaciones VARCHAR(255) NULL
 );
 
@@ -59,14 +52,15 @@ CREATE TABLE SIGELAB.dbo.DetallePrestamo (
                                              id_detalle INT IDENTITY(1,1) PRIMARY KEY,
                                              id_prestamo INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Prestamo(id_prestamo),
                                              id_equipo INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Equipo(id_equipo),
-                                             estado_devolucion VARCHAR(20) DEFAULT 'PENDIENTE' NOT NULL CHECK (estado_devolucion IN ('PENDIENTE', 'DEVUELTO_BUENO', 'DEVUELTO_DAÑADO'))
+                                             estado_devolucion VARCHAR(20) DEFAULT 'PENDIENTE' NOT NULL CHECK (estado_devolucion IN ('PENDIENTE', 'DEVUELTO')),
+                                             CONSTRAINT UQ_Detalle_prestamo_equipo UNIQUE (id_prestamo, id_equipo)
 );
 
 CREATE TABLE SIGELAB.dbo.Devolucion (
                                         id_devolucion INT IDENTITY(1,1) PRIMARY KEY,
-                                        id_detalle INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.DetallePrestamo(id_detalle),
+                                        id_detalle INT NOT NULL UNIQUE FOREIGN KEY REFERENCES SIGELAB.dbo.DetallePrestamo(id_detalle),
                                         fecha_devolucion DATETIME DEFAULT GETDATE() NOT NULL,
-                                        condicion VARCHAR(20) NOT NULL CHECK (condicion IN ('BUENO', 'DAÑADO')),
+                                        condicion VARCHAR(20) NOT NULL CHECK (condicion IN ('BUENO', 'DANADO')),
                                         observaciones VARCHAR(255) NULL,
                                         id_usuario_registra INT NOT NULL FOREIGN KEY REFERENCES SIGELAB.dbo.Usuario(id_usuario)
 );
@@ -90,11 +84,20 @@ CREATE TABLE SIGELAB.dbo.bitacora_auditoria (
                                                 usuario VARCHAR(50) NOT NULL,
                                                 fecha_hora DATETIME DEFAULT GETDATE() NOT NULL,
                                                 accion VARCHAR(50) NOT NULL,
+                                                entidad VARCHAR(50) NULL,
+                                                id_registro INT NULL,
                                                 detalle VARCHAR(255) NULL
 );
 
-INSERT INTO SIGELAB.dbo.Docente (codigo_empleado, nombres, apellidos, correo, activo)
-VALUES ('DOC-ADMIN', 'Administrador', 'Sistema', 'admin@sigelab.edu', 1);
+INSERT INTO SIGELAB.dbo.Usuario (nombre, apellido, usuario, password_hash, correo, rol, activo)
+VALUES ('Administrador', 'Sistema', 'admin', '$2a$10$zw9K7KoEOLMVIHpKSSYHDeFthhIQwTgdmy4M7/UxtSs3QSKvjocgG', 'admin@sigelab.edu', 'ADMIN', 1);
 
-INSERT INTO SIGELAB.dbo.Usuario (usuario, password_hash, rol, id_docente, activo)
-VALUES ('admin', '$2a$10$zw9K7KoEOLMVIHpKSSYHDeFthhIQwTgdmy4M7/UxtSs3QSKvjocgG', 'ADMIN', 1, 1);
+INSERT INTO SIGELAB.dbo.TipoEquipo (nombre, descripcion) VALUES
+                                                             ('Laptop', 'Computadoras portatiles'),
+                                                             ('Camara', 'Camaras fotograficas y de video'),
+                                                             ('Proyector', 'Proyectores multimedia'),
+                                                             ('Router', 'Equipos de enrutamiento'),
+                                                             ('Switch', 'Equipos de conmutacion'),
+                                                             ('Tablet', 'Tabletas'),
+                                                             ('Monitor', 'Monitores'),
+                                                             ('Kit electronico', 'Kits de practicas electronicas');

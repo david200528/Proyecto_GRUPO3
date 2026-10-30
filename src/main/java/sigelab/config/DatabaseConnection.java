@@ -71,7 +71,7 @@ public class DatabaseConnection {
 
             // Si no existía, lo insertamos por primera vez
             if (filasActualizadas == 0) {
-                stmt.execute("INSERT INTO SIGELAB.dbo.Usuario (usuario, password_hash, rol, activo) VALUES ('admin', '" + passHash + "', 'ADMIN', 1)");
+                stmt.execute("INSERT INTO SIGELAB.dbo.Usuario (nombre, apellido, usuario, password_hash, correo, rol, activo) VALUES ('Administrador', 'Sistema', 'admin', '" + passHash + "', 'admin@sigelab.edu', 'ADMIN', 1)");
             }
             System.out.println("Usuario admin preparado exitosamente.");
 
