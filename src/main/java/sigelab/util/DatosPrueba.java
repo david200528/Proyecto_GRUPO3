@@ -7,10 +7,6 @@ import sigelab.enums.TipoMarcaje;
 import sigelab.model.*;
 import sigelab.repository.*;
 import sigelab.service.*;
-import universidad.asistencia.enums.*;
-import universidad.asistencia.model.*;
-import universidad.asistencia.repository.*;
-import universidad.asistencia.service.*;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -32,6 +28,7 @@ public class DatosPrueba {
     private final DispositivoRepository dispositivoRepository = new DispositivoRepository();
     private final MarcajeRepository marcajeRepository = new MarcajeRepository();
     private final JustificacionRepository justificacionRepository = new JustificacionRepository();
+
     private final UsuarioRepository usuarioRepository = new UsuarioRepository();
 
     private final EstudianteService estudianteService = new EstudianteService(estudianteRepository);
@@ -45,6 +42,7 @@ public class DatosPrueba {
     private final DispositivoService dispositivoService = new DispositivoService(dispositivoRepository);
     private final AsistenciaService asistenciaService = new AsistenciaService(estudianteRepository, sesionRepository, inscripcionRepository, horarioRepository, dispositivoRepository, marcajeRepository);
     private final JustificacionService justificacionService = new JustificacionService(justificacionRepository, estudianteRepository, sesionRepository, docenteRepository, inscripcionRepository);
+
     private final UsuarioService usuarioService = new UsuarioService(usuarioRepository);
 
     public Escenario cargar() {
@@ -194,7 +192,6 @@ public class DatosPrueba {
                 inscripcionService.guardar(new Inscripcion(estudiantes.get(i), secciones.get(indiceSeccion), LocalDate.of(2026, 1, 1)));
             }
         }
-        // Esta inscripción adicional permite probar el rechazo de marcajes en una sesión CANCELADA.
         if (!inscripcionRepository.existe(estudiantes.get(4).getIdEstudiante(), secciones.get(4).getIdSeccion())) {
             inscripcionService.guardar(new Inscripcion(estudiantes.get(4), secciones.get(4), LocalDate.of(2026, 1, 1)));
         }

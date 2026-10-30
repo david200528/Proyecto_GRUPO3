@@ -27,8 +27,8 @@ import java.util.Date;
 /** Administración de horarios semanales. */
 public class HorarioSemanalForm {
 
-    private JPanel panelPrincipal;
     private JTextField txtId;
+    private JPanel panelPrincipal;
     private JComboBox<Seccion> cmbSeccion;
     private JComboBox<String> cmbDia;
     private JSpinner spnHoraInicio;
