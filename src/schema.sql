@@ -97,4 +97,4 @@ INSERT INTO SIGELAB.dbo.Docente (codigo_empleado, nombres, apellidos, correo, ac
 VALUES ('DOC-ADMIN', 'Administrador', 'Sistema', 'admin@sigelab.edu', 1);
 
 INSERT INTO SIGELAB.dbo.Usuario (usuario, password_hash, rol, id_docente, activo)
-VALUES ('admin', '$2a$10$zJN60hNn9TPYV/yQLvEHXe0cP5Lk.SQJPEg6yoyLBC/S2m25yW', 'ADMIN', 1, 1);
+VALUES ('admin', '$2a$10$zw9K7KoEOLMVIHpKSSYHDeFthhIQwTgdmy4M7/UxtSs3QSKvjocgG', 'ADMIN', 1, 1);
