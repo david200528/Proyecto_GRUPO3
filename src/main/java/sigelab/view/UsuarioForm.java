@@ -1,13 +1,11 @@
 package sigelab.view;
 
-import sigelab.controller.DocenteController;
 import sigelab.controller.UsuarioController;
 import sigelab.enums.RolUsuario;
 import sigelab.integration.facial.FacialAuthClient;
 import sigelab.integration.facial.FacialClientException;
 import sigelab.integration.facial.FacialEnrollmentResult;
 import sigelab.integration.facial.FacialStatus;
-import sigelab.model.Docente;
 import sigelab.model.Usuario;
 
 import javax.swing.JButton;
@@ -29,59 +27,93 @@ import java.util.concurrent.ExecutionException;
 /** Administración de usuarios sin exponer el hash de contraseña. */
 public class UsuarioForm {
 
-    private JPanel panelPrincipal;
-    private JTextField txtId;
-    private JTextField txtUsuario;
-    private JPasswordField txtPassword;
-    private JComboBox<RolUsuario> cmbRol;
-    private JComboBox<Docente> cmbDocente;
-    private JCheckBox chkActivo;
-    private JButton btnNuevo;
-    private JButton btnGuardar;
-    private JButton btnActualizar;
-    private JButton btnDesactivar;
-    private JTextField txtBuscar;
-    private JButton btnBuscar;
-    private JTable tblUsuarios;
-    private JButton btnSalir;
-    private JButton btnRegistrarRostro;
-    private JButton btnEliminarRostro;
-    private JLabel lblEstadoRostro;
+    private final JPanel panelPrincipal = Ui.contenedor("ADMINISTRACION DE USUARIOS");
+    private final JTextField txtId = new JTextField(10);
+    private final JTextField txtNombre = new JTextField(20);
+    private final JTextField txtApellido = new JTextField(20);
+    private final JTextField txtCorreo = new JTextField(25);
+    private final JTextField txtUsuario = new JTextField(15);
+    private final JPasswordField txtPassword = new JPasswordField(15);
+    private final JComboBox<RolUsuario> cmbRol = new JComboBox<>();
+    private final JCheckBox chkActivo = new JCheckBox("Activo");
+    private final JButton btnNuevo = new JButton("Nuevo");
+    private final JButton btnGuardar = new JButton("Guardar");
+    private final JButton btnActualizar = new JButton("Actualizar");
+    private final JButton btnDesactivar = new JButton("Desactivar");
+    private final JTextField txtBuscar = new JTextField(20);
+    private final JButton btnBuscar = new JButton("Buscar");
+    private final JTable tblUsuarios = new JTable();
+    private final JButton btnSalir = new JButton("Cerrar");
+    private final JButton btnRegistrarRostro = new JButton("Registrar rostro");
+    private final JButton btnEliminarRostro = new JButton("Eliminar rostro");
+    private final JLabel lblEstadoRostro = new JLabel("Seleccione un usuario.");
 
     private final UsuarioController usuarioController;
-    private final DocenteController docenteController;
     private final FacialAuthClient facialAuthClient;
     private final Usuario usuarioAutenticado;
     private Usuario usuarioSeleccionado;
     private boolean perfilFacialRegistrado;
 
     public UsuarioForm() {
-        this(null);
+        this((Usuario) null);
     }
 
     public UsuarioForm(Usuario usuarioAutenticado) {
-        this(new UsuarioController(), new DocenteController(), new FacialAuthClient(), usuarioAutenticado);
+        this(new UsuarioController(), new FacialAuthClient(), usuarioAutenticado);
     }
 
-    public UsuarioForm(UsuarioController usuarioController, DocenteController docenteController) {
-        this(usuarioController, docenteController, new FacialAuthClient(), null);
+    public UsuarioForm(UsuarioController usuarioController) {
+        this(usuarioController, new FacialAuthClient(), null);
     }
 
-    public UsuarioForm(UsuarioController usuarioController, DocenteController docenteController,
+    public UsuarioForm(UsuarioController usuarioController,
                        Usuario usuarioAutenticado) {
-        this(usuarioController, docenteController, new FacialAuthClient(), usuarioAutenticado);
+        this(usuarioController, new FacialAuthClient(), usuarioAutenticado);
     }
 
-    public UsuarioForm(UsuarioController usuarioController, DocenteController docenteController,
+    public UsuarioForm(UsuarioController usuarioController,
                        FacialAuthClient facialAuthClient, Usuario usuarioAutenticado) {
         this.usuarioController = usuarioController;
-        this.docenteController = docenteController;
         this.facialAuthClient = facialAuthClient;
         this.usuarioAutenticado = usuarioAutenticado;
+        construirPantalla();
         configurarFormulario();
-        cargarDocentes();
         configurarEventos();
         cargarUsuarios();
+    }
+
+    private void construirPantalla() {
+        JPanel formulario = new JPanel(new java.awt.GridBagLayout());
+        Ui.campo(formulario, 0, "ID", txtId);
+        Ui.campo(formulario, 1, "Nombre", txtNombre);
+        Ui.campo(formulario, 2, "Apellido", txtApellido);
+        Ui.campo(formulario, 3, "Correo", txtCorreo);
+        Ui.campo(formulario, 4, "Usuario", txtUsuario);
+        Ui.campo(formulario, 5, "Contraseña", txtPassword);
+        Ui.campo(formulario, 6, "Rol", cmbRol);
+        JPanel estado = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 8, 0));
+        estado.add(chkActivo);
+        estado.add(lblEstadoRostro);
+        Ui.campo(formulario, 7, "Estado", estado);
+
+        JPanel arriba = new JPanel(new java.awt.BorderLayout());
+        arriba.add(formulario, java.awt.BorderLayout.CENTER);
+        arriba.add(Ui.botones(btnNuevo, btnGuardar, btnActualizar, btnDesactivar,
+                btnRegistrarRostro, btnEliminarRostro, btnSalir), java.awt.BorderLayout.SOUTH);
+
+        JPanel busqueda = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 2));
+        busqueda.add(new JLabel("Buscar usuario:"));
+        busqueda.add(txtBuscar);
+        busqueda.add(btnBuscar);
+
+        JPanel centro = new JPanel(new java.awt.BorderLayout(4, 4));
+        centro.add(busqueda, java.awt.BorderLayout.NORTH);
+        centro.add(new javax.swing.JScrollPane(tblUsuarios), java.awt.BorderLayout.CENTER);
+
+        JPanel contenido = new JPanel(new java.awt.BorderLayout(6, 6));
+        contenido.add(arriba, java.awt.BorderLayout.NORTH);
+        contenido.add(centro, java.awt.BorderLayout.CENTER);
+        panelPrincipal.add(contenido, java.awt.BorderLayout.CENTER);
     }
 
     private void configurarFormulario() {
@@ -92,7 +124,6 @@ public class UsuarioForm {
         cmbRol.addItem(null);
         for (RolUsuario rol : RolUsuario.values()) cmbRol.addItem(rol);
         ComboBoxRenderers.configurarRoles(cmbRol);
-        ComboBoxRenderers.configurarDocentes(cmbDocente);
         btnActualizar.setEnabled(false);
         btnDesactivar.setEnabled(false);
         btnRegistrarRostro.setEnabled(false);
@@ -100,12 +131,11 @@ public class UsuarioForm {
         lblEstadoRostro.setText("Seleccione un usuario.");
         actualizarTextoEstado(true);
         configurarTabla();
-        actualizarEstadoDocente();
     }
 
     private void configurarTabla() {
         tblUsuarios.setModel(new DefaultTableModel(
-                new Object[]{"ID", "Usuario", "Rol", "Docente", "Activo", "Fecha creación"}, 0) {
+                new Object[]{"ID", "Usuario", "Nombre", "Correo", "Rol", "Activo", "Fecha creación"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -114,18 +144,7 @@ public class UsuarioForm {
         tblUsuarios.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     }
 
-    private void cargarDocentes() {
-        try {
-            cmbDocente.removeAllItems();
-            cmbDocente.addItem(null);
-            for (Docente docente : docenteController.listarActivos()) cmbDocente.addItem(docente);
-        } catch (RuntimeException e) {
-            mostrarError(e.getMessage());
-        }
-    }
-
     private void configurarEventos() {
-        cmbRol.addActionListener(e -> actualizarEstadoDocente());
         btnNuevo.addActionListener(e -> nuevo());
         btnGuardar.addActionListener(e -> guardar());
         btnActualizar.addActionListener(e -> actualizar());
@@ -139,27 +158,17 @@ public class UsuarioForm {
         });
     }
 
-    private void actualizarEstadoDocente() {
-        boolean esDocente = cmbRol.getSelectedItem() == RolUsuario.DOCENTE;
-        cmbDocente.setEnabled(esDocente);
-        if (!esDocente) cmbDocente.setSelectedItem(null);
-    }
-
     private void guardar() {
         try {
-            RolUsuario rol = (RolUsuario) cmbRol.getSelectedItem();
-            if (rol == null) throw new IllegalArgumentException("Seleccione el rol del usuario.");
-            Docente docente = rol == RolUsuario.DOCENTE ? (Docente) cmbDocente.getSelectedItem() : null;
-            if (rol == RolUsuario.DOCENTE && docente == null) {
-                throw new IllegalArgumentException("Seleccione el docente asociado.");
-            }
-            Usuario usuario = usuarioController.crearUsuario(
-                    txtUsuario.getText().trim(), new String(txtPassword.getPassword()), rol, docente);
+            Usuario nuevo = new Usuario(txtNombre.getText(), txtApellido.getText(), txtUsuario.getText(),
+                    null, txtCorreo.getText(), (RolUsuario) cmbRol.getSelectedItem());
+            Usuario usuario = usuarioController.crearUsuario(usuarioAutenticado, nuevo,
+                    new String(txtPassword.getPassword()));
             JOptionPane.showMessageDialog(panelPrincipal, "Usuario creado correctamente: " + usuario.getUsuario());
             limpiarFormulario();
             cargarUsuarios();
         } catch (RuntimeException e) {
-            mostrarError(e.getMessage());
+            Ui.error(panelPrincipal, e);
         }
     }
 
@@ -169,16 +178,14 @@ public class UsuarioForm {
             if (!confirmar("¿Desea actualizar este usuario?", "Confirmar actualización")) return;
             Usuario usuario = construirUsuario(chkActivo.isSelected());
             String password = new String(txtPassword.getPassword());
-            boolean actualizado = password.isBlank()
-                    ? usuarioController.actualizar(usuario)
-                    : usuarioController.actualizarConPassword(usuario, password);
+            boolean actualizado = usuarioController.actualizar(usuarioAutenticado, usuario, password);
             if (actualizado) {
                 JOptionPane.showMessageDialog(panelPrincipal, "Usuario actualizado correctamente.");
                 cargarUsuarios();
                 seleccionarFilaPorId(usuario.getIdUsuario());
             }
         } catch (RuntimeException e) {
-            mostrarError(e.getMessage());
+            Ui.error(panelPrincipal, e);
         }
     }
 
@@ -191,7 +198,10 @@ public class UsuarioForm {
             boolean nuevoEstado = !chkActivo.isSelected();
             String accion = nuevoEstado ? "activar" : "desactivar";
             if (!confirmar("¿Desea " + accion + " este usuario?", "Confirmar cambio de estado")) return;
-            if (usuarioController.actualizar(construirUsuario(nuevoEstado))) {
+            boolean cambiado = nuevoEstado
+                    ? usuarioController.actualizar(usuarioAutenticado, construirUsuario(true), null)
+                    : usuarioController.desactivar(usuarioAutenticado, usuarioSeleccionado.getIdUsuario());
+            if (cambiado) {
                 chkActivo.setSelected(nuevoEstado);
                 actualizarTextoEstado(nuevoEstado);
                 JOptionPane.showMessageDialog(panelPrincipal,
@@ -200,34 +210,31 @@ public class UsuarioForm {
                 seleccionarFilaPorId(usuarioSeleccionado.getIdUsuario());
             }
         } catch (RuntimeException e) {
-            mostrarError(e.getMessage());
+            Ui.error(panelPrincipal, e);
         }
     }
 
     private Usuario construirUsuario(boolean activo) {
-        RolUsuario rol = (RolUsuario) cmbRol.getSelectedItem();
-        if (rol == null) throw new IllegalArgumentException("Seleccione el rol del usuario.");
-        Docente docente = rol == RolUsuario.DOCENTE ? (Docente) cmbDocente.getSelectedItem() : null;
-        if (rol == RolUsuario.DOCENTE && docente == null) {
-            throw new IllegalArgumentException("Seleccione el docente asociado.");
-        }
-        return new Usuario(obtenerId(), txtUsuario.getText().trim(), usuarioSeleccionado.getPasswordHash(),
-                rol, docente, activo, usuarioSeleccionado.getFechaCreacion());
+        Usuario u = new Usuario(txtNombre.getText(), txtApellido.getText(), usuarioSeleccionado.getUsuario(),
+                usuarioSeleccionado.getPasswordHash(), txtCorreo.getText(), (RolUsuario) cmbRol.getSelectedItem());
+        u.setIdUsuario(obtenerId());
+        u.setActivo(activo);
+        u.setFechaCreacion(usuarioSeleccionado.getFechaCreacion());
+        return u;
     }
 
     private void cargarUsuarios() {
         try {
             DefaultTableModel modelo = (DefaultTableModel) tblUsuarios.getModel();
             modelo.setRowCount(0);
-            for (Usuario usuario : usuarioController.listar()) {
+            for (Usuario usuario : usuarioController.listar(usuarioAutenticado)) {
                 modelo.addRow(new Object[]{usuario.getIdUsuario(), usuario.getUsuario(),
-                        ComboBoxRenderers.texto(usuario.getRol()),
-                        usuario.getDocente() == null ? "" : usuario.getDocente().getCodigoEmpleado(),
+                        usuario.getNombreCompleto(), usuario.getCorreo(), ComboBoxRenderers.texto(usuario.getRol()),
                         usuario.isActivo() ? "Sí" : "No",
                         ComboBoxRenderers.fechaHora(usuario.getFechaCreacion())});
             }
         } catch (RuntimeException e) {
-            mostrarError(e.getMessage());
+            Ui.error(panelPrincipal, e);
         }
     }
 
@@ -241,7 +248,7 @@ public class UsuarioForm {
             usuarioController.buscarPorUsuario(nombre).ifPresentOrElse(this::mostrarUsuario,
                     () -> JOptionPane.showMessageDialog(panelPrincipal, "No se encontró el usuario."));
         } catch (RuntimeException e) {
-            mostrarError(e.getMessage());
+            Ui.error(panelPrincipal, e);
         }
     }
 
@@ -252,37 +259,26 @@ public class UsuarioForm {
             usuarioController.buscar(Integer.parseInt(tblUsuarios.getValueAt(fila, 0).toString()))
                     .ifPresent(this::mostrarUsuario);
         } catch (RuntimeException e) {
-            mostrarError(e.getMessage());
+            Ui.error(panelPrincipal, e);
         }
     }
 
     private void mostrarUsuario(Usuario usuario) {
         usuarioSeleccionado = usuario;
         txtId.setText(String.valueOf(usuario.getIdUsuario()));
+        txtUsuario.setEditable(false);
         txtUsuario.setText(usuario.getUsuario());
+        txtNombre.setText(usuario.getNombre());
+        txtApellido.setText(usuario.getApellido());
+        txtCorreo.setText(usuario.getCorreo());
         txtPassword.setText("");
         cmbRol.setSelectedItem(usuario.getRol());
-        seleccionarDocente(usuario.getDocente());
         chkActivo.setSelected(usuario.isActivo());
         actualizarTextoEstado(usuario.isActivo());
         btnGuardar.setEnabled(false);
         btnActualizar.setEnabled(true);
         btnDesactivar.setEnabled(!esUsuarioAutenticadoActivo(usuario));
         consultarEstadoRostro(usuario.getIdUsuario());
-    }
-
-    private void seleccionarDocente(Docente buscado) {
-        if (buscado == null) {
-            cmbDocente.setSelectedItem(null);
-            return;
-        }
-        for (int i = 0; i < cmbDocente.getItemCount(); i++) {
-            Docente actual = cmbDocente.getItemAt(i);
-            if (actual != null && actual.getIdDocente() == buscado.getIdDocente()) {
-                cmbDocente.setSelectedIndex(i);
-                return;
-            }
-        }
     }
 
     private int obtenerId() {
@@ -309,12 +305,15 @@ public class UsuarioForm {
         usuarioSeleccionado = null;
         perfilFacialRegistrado = false;
         txtId.setText("");
+        txtUsuario.setEditable(true);
         txtUsuario.setText("");
+        txtNombre.setText("");
+        txtApellido.setText("");
+        txtCorreo.setText("");
         txtPassword.setText("");
         chkActivo.setSelected(true);
         txtBuscar.setText("");
-        cmbRol.setSelectedItem(RolUsuario.ADMIN);
-        actualizarEstadoDocente();
+        cmbRol.setSelectedItem(RolUsuario.ENCARGADO);
         tblUsuarios.clearSelection();
         btnGuardar.setEnabled(true);
         btnActualizar.setEnabled(false);
