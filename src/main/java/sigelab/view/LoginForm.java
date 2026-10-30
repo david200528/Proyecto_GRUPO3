@@ -1,13 +1,16 @@
 package sigelab.view;
 
 import sigelab.controller.UsuarioController;
+import sigelab.integration.facial.FacialAuthClient;
+import sigelab.integration.facial.FacialVerificationResult;
 import sigelab.model.Usuario;
 
 import javax.swing.*;
-import java.util.concurrent.ExecutionException;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 
-/** Pantalla de entrada al sistema. */
+/** Pantalla de entrada al sistema: usuario y contraseña, y después validación facial. */
 public class LoginForm {
 
     private JPanel panelPrincipal;
@@ -17,14 +20,35 @@ public class LoginForm {
     private JButton btnSalir;
 
     private final UsuarioController usuarioController;
+    private final FacialAuthClient facialAuthClient;
     private boolean autenticando;
 
+    /** Resultado del proceso completo de login: el usuario aceptado o el motivo del rechazo. */
+    private record ResultadoLogin(Usuario usuario, String motivoRechazo) {
+        static ResultadoLogin aceptado(Usuario usuario) {
+            return new ResultadoLogin(usuario, null);
+        }
+
+        static ResultadoLogin rechazado(String motivo) {
+            return new ResultadoLogin(null, motivo);
+        }
+
+        boolean esAceptado() {
+            return usuario != null;
+        }
+    }
+
     public LoginForm() {
-        this(new UsuarioController());
+        this(new UsuarioController(), new FacialAuthClient());
     }
 
     public LoginForm(UsuarioController usuarioController) {
+        this(usuarioController, new FacialAuthClient());
+    }
+
+    public LoginForm(UsuarioController usuarioController, FacialAuthClient facialAuthClient) {
         this.usuarioController = usuarioController;
+        this.facialAuthClient = facialAuthClient;
         configurarEventos();
     }
 
@@ -54,22 +78,50 @@ public class LoginForm {
         btnIngresar.setEnabled(false);
         btnIngresar.setText("Verificando...");
 
-        new SwingWorker<Optional<Usuario>, Void>() {
+        new SwingWorker<ResultadoLogin, String>() {
             @Override
-            protected Optional<Usuario> doInBackground() {
-                return usuarioController.autenticar(usuario, password);
+            protected ResultadoLogin doInBackground() {
+                // Factor 1: usuario, contraseña y usuario activo (RN-01)
+                Optional<Usuario> autenticado = usuarioController.autenticar(usuario, password);
+                if (autenticado.isEmpty()) {
+                    return ResultadoLogin.rechazado("Usuario o contraseña incorrectos, o usuario inactivo.");
+                }
+                Usuario encontrado = autenticado.get();
+
+                // Factor 2: rostro (RN-02). Cualquier fallo del servicio facial deniega el acceso.
+                publish("Mire a la cámara...");
+                try {
+                    FacialVerificationResult resultado = facialAuthClient.verify(encontrado.getIdUsuario());
+                    if (resultado.success() && resultado.matched()) {
+                        return ResultadoLogin.aceptado(encontrado);
+                    }
+                    String motivo = resultado.message() == null || resultado.message().isBlank()
+                            ? "El rostro no corresponde al usuario."
+                            : resultado.message();
+                    return ResultadoLogin.rechazado("Validación facial fallida: " + motivo);
+                } catch (RuntimeException e) {
+                    String detalle = e.getMessage() == null || e.getMessage().isBlank()
+                            ? "Verifique que el servicio de reconocimiento facial esté encendido."
+                            : e.getMessage();
+                    return ResultadoLogin.rechazado("No fue posible validar el rostro. " + detalle);
+                }
+            }
+
+            @Override
+            protected void process(List<String> mensajes) {
+                btnIngresar.setText(mensajes.get(mensajes.size() - 1));
             }
 
             @Override
             protected void done() {
                 try {
-                    Optional<Usuario> usuarioAutenticado = get();
-                    if (usuarioAutenticado.isEmpty()) {
-                        mostrarError("Usuario o contraseña incorrectos, o usuario inactivo.");
+                    ResultadoLogin resultado = get();
+                    if (resultado.esAceptado()) {
+                        abrirMenu(resultado.usuario());
+                    } else {
+                        mostrarError(resultado.motivoRechazo());
                         txtPassword.selectAll();
                         txtPassword.requestFocus();
-                    } else {
-                        abrirMenu(usuarioAutenticado.get());
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();

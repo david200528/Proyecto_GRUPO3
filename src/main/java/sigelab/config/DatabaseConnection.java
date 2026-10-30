@@ -5,20 +5,32 @@ import sigelab.service.UsuarioService;
 import sigelab.repository.AuditoriaRepository;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Properties;
 
 public class DatabaseConnection {
 
-    private static final String URL_MASTER = "jdbc:sqlserver://localhost:1433;databaseName=master;encrypt=true;trustServerCertificate=true;";
-    private static final String URL_SIGELAB = "jdbc:sqlserver://localhost:1433;databaseName=SIGELAB;encrypt=true;trustServerCertificate=true;";
-    private static final String USER = "sa";
-    private static final String PASSWORD = "Dev2025!";
+    private static final Properties PROPS = cargarPropiedades();
+
+    // Los datos de conexion se leen, en este orden, de: propiedad del sistema, variable de
+    // entorno o src/main/resources/config.properties. Ya no hay contrasenas en el codigo.
+    private static final String URL_SIGELAB = configuracion("sigelab.db.url", "DB_URL", "db.url",
+            "jdbc:sqlserver://localhost:1433;databaseName=SIGELAB;encrypt=true;trustServerCertificate=true;");
+    private static final String URL_MASTER = URL_SIGELAB.replace("databaseName=SIGELAB", "databaseName=master");
+    private static final String USER = configuracion("sigelab.db.user", "DB_USER", "db.user", "sa");
+    private static final String PASSWORD = configuracion("sigelab.db.password", "DB_PASSWORD", "db.password", null);
 
     public static Connection getConnection() throws SQLException {
+        if (PASSWORD == null) {
+            throw new SQLException("Falta la contraseña de la base de datos. "
+                    + "Copia config.example.properties a config.properties y completa db.password.");
+        }
         return DriverManager.getConnection(URL_SIGELAB, USER, PASSWORD);
     }
 
@@ -81,5 +93,22 @@ public class DatabaseConnection {
         } else {
             System.out.println("Prueba de Login: No se encontró el usuario o la contraseña no coincide.");
         }
+    }
+
+    private static Properties cargarPropiedades() {
+        Properties props = new Properties();
+        try (InputStream in = DatabaseConnection.class.getResourceAsStream("/config.properties")) {
+            if (in != null) props.load(in);
+        } catch (IOException e) {
+            // si no se puede leer el archivo, se usan las otras fuentes
+        }
+        return props;
+    }
+
+    private static String configuracion(String propiedad, String variable, String clave, String porDefecto) {
+        String valor = System.getProperty(propiedad);
+        if (valor == null || valor.isBlank()) valor = System.getenv(variable);
+        if (valor == null || valor.isBlank()) valor = PROPS.getProperty(clave);
+        return valor == null || valor.isBlank() ? porDefecto : valor;
     }
 }
