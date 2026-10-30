@@ -23,6 +23,12 @@
 hs_err_pid*
 replay_pid*
 
+# Configuración de IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
 # Configuracion local (contiene contrasenas)
 src/main/resources/config.properties
 
