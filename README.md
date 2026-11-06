@@ -2,7 +2,7 @@
 
 Aplicación de escritorio en Java (Swing) con SQL Server y JDBC. Arquitectura por capas:
 `view -> controller -> service -> repository`. Las reglas de negocio (RN-01..RN-20) viven en `service`
-y los permisos se validan ahí, no solo en el menú.
+y los permisos se validan ahí, no solo en el menú. 
 
 ## Módulos
 Login con segundo factor facial, usuarios y roles (ADMIN, ENCARGADO, DOCENTE), laboratorios, tipos de equipo,
