@@ -30,7 +30,7 @@ Componente de reconocimiento facial – SIGELAB
 API local en Python que usa la cámara del equipo para validar el rostro de un usuario. Se usa únicamente como segundo factor del inicio de sesión: primero se validan usuario y contraseña, y después el rostro. El cliente Java es FacialAuthClient (paquete sigelab.integration.facial).
 
 Cómo funciona
-Java (LoginForm → FacialAuthClient)  ──HTTP──►  API Flask (app.py, 127.0.0.1:8765)
+Java (LoginForm → FacialAuthClient)  ──HTTP──►  API Flask (app.py, 127.0.0.1:8767)
 │
 ▼
 Cámara + OpenCV (detección Haar + reconocimiento LBPH)
