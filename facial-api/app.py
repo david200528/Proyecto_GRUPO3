@@ -78,6 +78,17 @@ def manejar_error(error):
     return jsonify(detail=error.detalle), error.estado
 
 
+@app.errorhandler(Exception)
+def manejar_error_inesperado(error):
+    """Cualquier otro error tambien responde {"detail": ...} para que Java muestre el motivo
+    en vez de "El servicio facial rechazo la solicitud (HTTP)"."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(error, HTTPException):
+        return jsonify(detail=error.description), error.code
+    app.logger.exception("Error inesperado")
+    return jsonify(detail=f"Error interno del servicio facial: {error}"), 500
+
+
 def cuerpo_json():
     return request.get_json(silent=True) or {}
 
@@ -176,37 +187,58 @@ def extraer_rostro(frame):
     return cv2.equalizeHist(rostro), caja  # equalizeHist reduce el efecto de la iluminacion
 
 
+def vaciar_carpeta(carpeta):
+    """Deja la carpeta creada y sin archivos. No borra la carpeta en si: en Windows,
+    OneDrive o el Explorador pueden tenerla abierta y entonces no se deja borrar
+    (asi quedaban carpetas vacias que despues impedian volver a registrar)."""
+    carpeta.mkdir(parents=True, exist_ok=True)
+    for archivo in carpeta.iterdir():
+        for _ in range(5):
+            try:
+                if archivo.is_dir():
+                    shutil.rmtree(archivo)
+                else:
+                    archivo.unlink()
+                break
+            except FileNotFoundError:
+                break
+            except OSError:
+                time.sleep(0.3)
+        else:
+            raise ErrorApi("No se pudo limpiar la carpeta de registros faciales porque está bloqueada. "
+                           "Cierra el Explorador de archivos y vuelve a intentarlo.", 500)
+
+
 def reemplazar_carpeta(origen, destino):
-    """Reemplaza destino por origen. En Windows, borrar una carpeta puede fallar si
-    algo la tiene abierta (OneDrive, el Explorador); por eso se reintenta."""
-    for _ in range(5):
-        try:
-            if destino.exists():
-                shutil.rmtree(destino)
-            origen.rename(destino)
-            return
-        except OSError:
-            time.sleep(0.5)
-    raise ErrorApi("No se pudo guardar el rostro: la carpeta de registros está bloqueada. "
-                   "Cierra el Explorador de archivos y vuelve a intentarlo.", 500)
+    """Pasa las fotos de origen a destino (reemplazando las anteriores) moviendo
+    archivos, no carpetas, para que funcione aunque OneDrive bloquee las carpetas."""
+    vaciar_carpeta(destino)
+    for archivo in origen.iterdir():
+        for _ in range(5):
+            try:
+                shutil.move(str(archivo), str(destino / archivo.name))
+                break
+            except OSError:
+                time.sleep(0.3)
+        else:
+            raise ErrorApi("No se pudo guardar el rostro: la carpeta de registros está bloqueada. "
+                           "Cierra el Explorador de archivos y vuelve a intentarlo.", 500)
+    shutil.rmtree(origen, ignore_errors=True)  # si OneDrive la retiene, queda vacia y no molesta
 
 
-def entrenar():
-    """Entrena LBPH con todos los rostros registrados. La etiqueta es el userId."""
-    imagenes, etiquetas = [], []
-    if FACES_DIR.exists():
-        for carpeta in FACES_DIR.iterdir():
-            if not (carpeta.is_dir() and carpeta.name.isdigit()):
-                continue  # ignora carpetas temporales o de pruebas anteriores
-            for archivo in carpeta.glob("*.jpg"):
-                imagen = cv2.imread(str(archivo), cv2.IMREAD_GRAYSCALE)
-                if imagen is not None:
-                    imagenes.append(imagen)
-                    etiquetas.append(int(carpeta.name))
+def entrenar(user_id):
+    """Entrena LBPH SOLO con las fotos del usuario que intenta ingresar (verificacion 1:1).
+    Antes se entrenaba con todos los usuarios y se exigia que el mas parecido fuera
+    el correcto; si la misma persona tenia rostro en dos cuentas, ninguna podia entrar."""
+    imagenes = []
+    for archivo in muestras_de(user_id):
+        imagen = cv2.imread(str(archivo), cv2.IMREAD_GRAYSCALE)
+        if imagen is not None:
+            imagenes.append(imagen)
     if not imagenes:
         return None
     reconocedor = cv2.face.LBPHFaceRecognizer_create()
-    reconocedor.train(imagenes, np.array(etiquetas))
+    reconocedor.train(imagenes, np.array([user_id] * len(imagenes)))
     return reconocedor
 
 
@@ -229,8 +261,7 @@ def enroll():
 
     # Se captura en una carpeta temporal: si falla, el registro anterior no se pierde
     temporal = FACES_DIR / f"tmp_{user_id}"
-    shutil.rmtree(temporal, ignore_errors=True)
-    temporal.mkdir(parents=True)
+    vaciar_carpeta(temporal)  # puede existir vacia de un intento anterior
 
     with camara_lock:
         cap = abrir_camara()
@@ -286,7 +317,9 @@ def verify():
     user_id = leer_user_id(cuerpo_json().get("userId"))
     if not muestras_de(user_id):
         raise ErrorApi("El usuario no tiene un rostro registrado.", 404)
-    reconocedor = entrenar()
+    reconocedor = entrenar(user_id)
+    if reconocedor is None:
+        raise ErrorApi("Las fotos del rostro registrado no se pudieron leer. Vuelve a registrar el rostro.", 409)
 
     intentos, aciertos, distancias = 0, 0, []
     with camara_lock:
@@ -308,11 +341,11 @@ def verify():
                                "(mira a la camara)", AZUL, caja)
                 if rostro is None or time.time() - ultimo < PAUSA_ENTRE_MUESTRAS:
                     continue
-                etiqueta, distancia = reconocedor.predict(rostro)
+                _, distancia = reconocedor.predict(rostro)
                 intentos += 1
                 distancias.append(distancia)
-                # Debe ser el usuario correcto Y estar bajo el umbral de distancia
-                if etiqueta == user_id and distancia <= UMBRAL:
+                # Verificacion 1:1: el rostro debe parecerse lo suficiente al de ESTE usuario
+                if distancia <= UMBRAL:
                     aciertos += 1
                 ultimo = time.time()
 
@@ -358,7 +391,9 @@ def delete_profile(user_id):
     leer_user_id(cuerpo_json().get("adminUserId"))
     if not muestras_de(user_id):
         raise ErrorApi("El usuario no tiene un rostro registrado.", 404)
-    shutil.rmtree(carpeta_usuario(user_id), ignore_errors=True)
+    carpeta = carpeta_usuario(user_id)
+    vaciar_carpeta(carpeta)                    # borra las fotos (falla con mensaje si estan bloqueadas)
+    shutil.rmtree(carpeta, ignore_errors=True)  # si OneDrive retiene la carpeta, queda vacia y no molesta
     return jsonify(success=True, userId=user_id, message="Rostro eliminado.")
 
 

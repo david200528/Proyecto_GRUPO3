@@ -3,15 +3,19 @@ package sigelab.view;
 import sigelab.controller.AuditoriaController;
 import sigelab.controller.UsuarioController;
 import sigelab.integration.facial.FacialAuthClient;
+import sigelab.integration.facial.FacialEnrollmentResult;
+import sigelab.integration.facial.FacialStatus;
 import sigelab.integration.facial.FacialVerificationResult;
 import sigelab.model.Usuario;
 
 import javax.swing.*;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
-/** Pantalla de entrada al sistema: usuario y contraseña, y después validación facial. */
+/**
+ * Pantalla de entrada al sistema: usuario y contraseña, y después validación facial.
+ * Si el usuario aún no tiene rostro registrado, se le ofrece registrarlo en ese momento.
+ */
 public class LoginForm {
 
     private final JPanel panelPrincipal = new JPanel(new java.awt.BorderLayout(8, 8));
@@ -25,18 +29,20 @@ public class LoginForm {
     private final AuditoriaController auditoria = new AuditoriaController();
     private boolean autenticando;
 
-    /** Resultado del proceso completo de login: el usuario aceptado o el motivo del rechazo. */
-    private record ResultadoLogin(Usuario usuario, String motivoRechazo) {
-        static ResultadoLogin aceptado(Usuario usuario) {
-            return new ResultadoLogin(usuario, null);
+    /** Resultado de cada paso del login: entrar, rechazar o pedir el registro del rostro. */
+    private enum TipoPaso { ACEPTADO, RECHAZADO, NECESITA_REGISTRO }
+
+    private record Paso(TipoPaso tipo, Usuario usuario, String mensaje) {
+        static Paso aceptado(Usuario usuario) {
+            return new Paso(TipoPaso.ACEPTADO, usuario, null);
         }
 
-        static ResultadoLogin rechazado(String motivo) {
-            return new ResultadoLogin(null, motivo);
+        static Paso rechazado(String mensaje) {
+            return new Paso(TipoPaso.RECHAZADO, null, mensaje);
         }
 
-        boolean esAceptado() {
-            return usuario != null;
+        static Paso necesitaRegistro(Usuario usuario) {
+            return new Paso(TipoPaso.NECESITA_REGISTRO, usuario, null);
         }
     }
 
@@ -98,76 +104,153 @@ public class LoginForm {
             return;
         }
 
-        autenticando = true;
-        btnIngresar.setEnabled(false);
-        btnIngresar.setText("Verificando...");
+        bloquear("Verificando...");
+        ejecutar(() -> validarCredenciales(usuario, password));
+    }
 
-        new SwingWorker<ResultadoLogin, String>() {
-            @Override
-            protected ResultadoLogin doInBackground() {
-                // Factor 1: usuario, contraseña y usuario activo (RN-01)
-                Optional<Usuario> autenticado = usuarioController.autenticar(usuario, password);
-                if (autenticado.isEmpty()) {
-                    auditoria.loginFallido(usuario, "Credenciales incorrectas o usuario inactivo");
-                    return ResultadoLogin.rechazado("Usuario o contraseña incorrectos, o usuario inactivo.");
-                }
-                Usuario encontrado = autenticado.get();
+    /* ---------------------------------------------------------------------
+       Flujo del login
+       1. Usuario y contraseña (RN-01).
+       2. Si el usuario YA tiene rostro: se verifica con la cámara (RN-02).
+       3. Si NO tiene rostro: se ofrece registrarlo en ese momento, y después
+          se verifica para confirmar que el reconocimiento funciona.
+       Cualquier fallo del servicio facial deniega el acceso.
+       --------------------------------------------------------------------- */
 
-                // Factor 2: rostro (RN-02). Cualquier fallo del servicio facial deniega el acceso.
-                publish("Mire a la cámara...");
-                try {
-                    FacialVerificationResult resultado = facialAuthClient.verify(encontrado.getIdUsuario());
-                    if (resultado.success() && resultado.matched()) {
-                        auditoria.loginExitoso(encontrado);
-                        return ResultadoLogin.aceptado(encontrado);
-                    }
-                    auditoria.loginFallido(usuario, "Validación facial no aprobada");
-                    String motivo = resultado.message() == null || resultado.message().isBlank()
-                            ? "El rostro no corresponde al usuario."
-                            : resultado.message();
-                    return ResultadoLogin.rechazado("Validación facial fallida: " + motivo);
-                } catch (RuntimeException e) {
-                    auditoria.loginFallido(usuario, "Servicio facial no disponible");
-                    String detalle = e.getMessage() == null || e.getMessage().isBlank()
-                            ? "Verifique que el servicio de reconocimiento facial esté encendido."
-                            : e.getMessage();
-                    return ResultadoLogin.rechazado("No fue posible validar el rostro. " + detalle);
+    /** Paso 1 (en segundo plano): contraseña y consulta de si ya tiene rostro registrado. */
+    private Paso validarCredenciales(String usuario, String password) {
+        Optional<Usuario> autenticado = usuarioController.autenticar(usuario, password);
+        if (autenticado.isEmpty()) {
+            auditoria.loginFallido(usuario, "Credenciales incorrectas o usuario inactivo");
+            return Paso.rechazado("Usuario o contraseña incorrectos, o usuario inactivo.");
+        }
+        Usuario encontrado = autenticado.get();
+        try {
+            FacialStatus estado = facialAuthClient.status(encontrado.getIdUsuario());
+            if (!estado.enrolled()) return Paso.necesitaRegistro(encontrado);
+        } catch (RuntimeException e) {
+            return servicioNoDisponible(encontrado, e);
+        }
+        avisar("Mire a la cámara...");
+        return verificarRostro(encontrado);
+    }
+
+    /** Paso 2b (en segundo plano): registra el rostro y luego lo verifica. */
+    private Paso registrarYVerificar(Usuario usuario) {
+        avisar("Registrando rostro...");
+        try {
+            FacialEnrollmentResult registro = facialAuthClient.enroll(usuario.getIdUsuario(), false);
+            if (!registro.success()) {
+                return Paso.rechazado("No fue posible registrar el rostro: " + registro.message());
+            }
+            auditoria.rostroRegistrado(usuario, registro.samples());
+        } catch (RuntimeException e) {
+            return Paso.rechazado("No fue posible registrar el rostro. " + detalleError(e));
+        }
+        avisar("Verificando rostro...");
+        return verificarRostro(usuario);
+    }
+
+    /** Paso 2a (en segundo plano): compara el rostro frente a la cámara con el registrado. */
+    private Paso verificarRostro(Usuario usuario) {
+        try {
+            FacialVerificationResult resultado = facialAuthClient.verify(usuario.getIdUsuario());
+            if (resultado.success() && resultado.matched()) {
+                auditoria.loginExitoso(usuario);
+                return Paso.aceptado(usuario);
+            }
+            auditoria.loginFallido(usuario.getUsuario(), "Validación facial no aprobada");
+            String motivo = resultado.message() == null || resultado.message().isBlank()
+                    ? "El rostro no corresponde al usuario."
+                    : resultado.message();
+            return Paso.rechazado("Validación facial fallida: " + motivo);
+        } catch (RuntimeException e) {
+            return servicioNoDisponible(usuario, e);
+        }
+    }
+
+    /** Se ejecuta en la pantalla (hilo de Swing) cuando termina cada paso. */
+    private void continuar(Paso paso) {
+        switch (paso.tipo()) {
+            case ACEPTADO -> {
+                desbloquear();
+                abrirMenu(paso.usuario());
+            }
+            case RECHAZADO -> {
+                desbloquear();
+                mostrarError(paso.mensaje());
+                txtPassword.selectAll();
+                txtPassword.requestFocus();
+            }
+            case NECESITA_REGISTRO -> {
+                int opcion = JOptionPane.showConfirmDialog(panelPrincipal,
+                        "Hola " + paso.usuario().getNombre() + ", todavía no tienes un rostro registrado.\n\n"
+                                + "¿Deseas registrarlo ahora?\n"
+                                + "Se abrirá la cámara: mira de frente y mueve un poco la cabeza\n"
+                                + "hasta que termine. Después se verificará tu rostro para ingresar.",
+                        "Registrar rostro", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+                if (opcion == JOptionPane.YES_OPTION) {
+                    bloquear("Registrando rostro...");
+                    ejecutar(() -> registrarYVerificar(paso.usuario()));
+                } else {
+                    auditoria.loginFallido(paso.usuario().getUsuario(), "Sin rostro registrado");
+                    desbloquear();
+                    mostrarError("Para ingresar a SIGELAB necesitas registrar tu rostro.");
                 }
             }
+        }
+    }
 
+    private Paso servicioNoDisponible(Usuario usuario, RuntimeException e) {
+        auditoria.loginFallido(usuario.getUsuario(), "Servicio facial no disponible");
+        return Paso.rechazado("No fue posible validar el rostro. " + detalleError(e));
+    }
+
+    private static String detalleError(RuntimeException e) {
+        return e.getMessage() == null || e.getMessage().isBlank()
+                ? "Verifique que el servicio de reconocimiento facial esté encendido (facial-api/iniciar_facial.bat)."
+                : e.getMessage();
+    }
+
+    /** Corre una tarea larga (BD, cámara) fuera del hilo de Swing y luego llama a continuar(). */
+    private void ejecutar(java.util.function.Supplier<Paso> tarea) {
+        new SwingWorker<Paso, Void>() {
             @Override
-            protected void process(List<String> mensajes) {
-                btnIngresar.setText(mensajes.get(mensajes.size() - 1));
+            protected Paso doInBackground() {
+                return tarea.get();
             }
 
             @Override
             protected void done() {
                 try {
-                    ResultadoLogin resultado = get();
-                    if (resultado.esAceptado()) {
-                        abrirMenu(resultado.usuario());
-                    } else {
-                        mostrarError(resultado.motivoRechazo());
-                        txtPassword.selectAll();
-                        txtPassword.requestFocus();
-                    }
+                    continuar(get());
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    mostrarError("El proceso fue interrumpido.");
+                    continuar(Paso.rechazado("El proceso fue interrumpido."));
                 } catch (ExecutionException e) {
-                    Throwable cause = e.getCause();
-                    if (cause instanceof RuntimeException runtimeError) {
-                        mostrarError(runtimeError.getMessage());
-                    } else {
-                        mostrarError("No fue posible completar la autenticación.");
-                    }
-                } finally {
-                    autenticando = false;
-                    btnIngresar.setEnabled(true);
-                    btnIngresar.setText("INGRESAR");
+                    Throwable causa = e.getCause();
+                    continuar(Paso.rechazado(causa instanceof RuntimeException && causa.getMessage() != null
+                            ? causa.getMessage()
+                            : "No fue posible completar la autenticación."));
                 }
             }
         }.execute();
+    }
+
+    private void avisar(String texto) {
+        SwingUtilities.invokeLater(() -> btnIngresar.setText(texto));
+    }
+
+    private void bloquear(String texto) {
+        autenticando = true;
+        btnIngresar.setEnabled(false);
+        btnIngresar.setText(texto);
+    }
+
+    private void desbloquear() {
+        autenticando = false;
+        btnIngresar.setEnabled(true);
+        btnIngresar.setText("INGRESAR");
     }
 
     private void abrirMenu(Usuario usuario) {

@@ -12,6 +12,11 @@ public class AuditoriaController {
         service.registrar(usuario, AccionAuditoria.LOGIN_EXITOSO, "Usuario", usuario.getIdUsuario(), "Ingreso al sistema");
     }
 
+    public void rostroRegistrado(Usuario usuario, int muestras) {
+        service.registrar(usuario, AccionAuditoria.ROSTRO_REGISTRADO, "Usuario", usuario.getIdUsuario(),
+                "Registro de rostro en el inicio de sesión (" + muestras + " muestras)");
+    }
+
     public void loginFallido(String usuarioDigitado, String motivo) { service.registrarLoginFallido(usuarioDigitado, motivo); }
     public TablaResultado listar(Usuario actor) { return service.listar(actor); }
 }
